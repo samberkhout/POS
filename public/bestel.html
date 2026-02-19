@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Bestellen</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f8f9fa; color: #2c3e50;
+      padding-bottom: 80px;
+    }
+
+    .header {
+      background: #2c3e50; color: white; padding: 16px 20px;
+      text-align: center; position: sticky; top: 0; z-index: 100;
+    }
+    .header h1 { font-size: 22px; }
+
+    /* Category tabs */
+    .category-tabs {
+      display: flex; overflow-x: auto; background: white;
+      border-bottom: 2px solid #ecf0f1; position: sticky; top: 54px; z-index: 99;
+      -webkit-overflow-scrolling: touch;
+    }
+    .category-tabs::-webkit-scrollbar { display: none; }
+    .cat-tab {
+      padding: 14px 20px; white-space: nowrap; font-size: 15px;
+      font-weight: 600; color: #7f8c8d; border: none; background: none;
+      border-bottom: 3px solid transparent; cursor: pointer;
+      flex-shrink: 0;
+    }
+    .cat-tab.active { color: #2c3e50; border-bottom-color: #3498db; }
+
+    /* Products */
+    .category-section { padding: 16px; }
+    .category-section h2 {
+      font-size: 18px; margin-bottom: 12px; color: #2c3e50;
+    }
+    .product-list {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 10px;
+    }
+    .product-card {
+      background: white; border-radius: 12px; padding: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08); text-align: center;
+      cursor: pointer; transition: transform 0.1s;
+    }
+    .product-card:active { transform: scale(0.97); }
+    .product-name { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+    .product-price { font-size: 14px; color: #7f8c8d; margin-bottom: 10px; }
+    .add-btn {
+      background: #3498db; color: white; border: none;
+      padding: 10px 20px; border-radius: 8px; font-size: 14px;
+      font-weight: 600; cursor: pointer; width: 100%;
+    }
+    .add-btn:active { background: #2980b9; }
+
+    /* Floating cart button */
+    .cart-float {
+      position: fixed; bottom: 20px; left: 50%;
+      transform: translateX(-50%);
+      background: #27ae60; color: white;
+      padding: 16px 40px; border-radius: 50px;
+      font-size: 18px; font-weight: 700;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      border: none; cursor: pointer; z-index: 200;
+      display: none; min-width: 250px; text-align: center;
+    }
+    .cart-float:active { background: #219a52; }
+    .cart-float .badge {
+      display: inline-block; background: white; color: #27ae60;
+      width: 26px; height: 26px; border-radius: 50%;
+      font-size: 14px; line-height: 26px; margin-left: 8px;
+    }
+
+    /* Cart drawer */
+    .cart-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+      z-index: 300; display: none;
+    }
+    .cart-overlay.active { display: block; }
+    .cart-drawer {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: white; border-radius: 20px 20px 0 0;
+      max-height: 85vh; z-index: 301; display: none;
+      flex-direction: column; overflow: hidden;
+    }
+    .cart-drawer.active { display: flex; }
+
+    .cart-drawer-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 20px; border-bottom: 1px solid #ecf0f1;
+    }
+    .cart-drawer-header h2 { font-size: 20px; }
+    .close-drawer {
+      background: none; border: none; font-size: 28px;
+      cursor: pointer; color: #7f8c8d; padding: 0 8px;
+    }
+
+    .cart-drawer-items {
+      flex: 1; overflow-y: auto; padding: 10px 20px;
+    }
+    .drawer-item {
+      display: flex; align-items: center; padding: 12px 0;
+      border-bottom: 1px solid #f0f0f0; gap: 12px;
+    }
+    .drawer-item-info { flex: 1; }
+    .drawer-item-name { font-weight: 600; font-size: 15px; }
+    .drawer-item-price { font-size: 14px; color: #7f8c8d; }
+    .drawer-qty {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .drawer-qty button {
+      width: 34px; height: 34px; border-radius: 50%;
+      border: 2px solid #ddd; background: white;
+      font-size: 18px; cursor: pointer; display: flex;
+      align-items: center; justify-content: center;
+    }
+    .drawer-qty span { font-size: 18px; font-weight: 600; min-width: 24px; text-align: center; }
+
+    .cart-drawer-footer {
+      padding: 20px; border-top: 1px solid #ecf0f1;
+    }
+    .cart-name-input {
+      width: 100%; padding: 14px; border: 2px solid #ddd;
+      border-radius: 10px; font-size: 16px; margin-bottom: 12px;
+    }
+    .cart-total-row {
+      display: flex; justify-content: space-between;
+      font-size: 20px; font-weight: 700; margin-bottom: 14px;
+    }
+    .checkout-btn {
+      width: 100%; padding: 18px; background: #27ae60;
+      color: white; border: none; border-radius: 12px;
+      font-size: 18px; font-weight: 700; cursor: pointer;
+    }
+    .checkout-btn:disabled {
+      background: #95a5a6; cursor: not-allowed;
+    }
+    .checkout-btn:active:not(:disabled) { background: #219a52; }
+
+    /* Payment modal */
+    .payment-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.8);
+      z-index: 400; display: none; align-items: center;
+      justify-content: center;
+    }
+    .payment-overlay.active { display: flex; }
+    .payment-box {
+      background: white; border-radius: 16px; padding: 30px;
+      width: 90%; max-width: 400px; text-align: center;
+    }
+    .payment-box h2 { margin-bottom: 16px; font-size: 20px; }
+    .payment-box .spinner {
+      width: 50px; height: 50px; border: 4px solid #eee;
+      border-top-color: #3498db; border-radius: 50%;
+      animation: spin 1s linear infinite; margin: 20px auto;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #adyen-dropin { margin-top: 20px; text-align: left; }
+
+    .error-msg { color: #e74c3c; margin-top: 10px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1 id="shopName">Laden...</h1>
+  </div>
+
+  <div class="category-tabs" id="categoryTabs"></div>
+
+  <div id="menuContainer"></div>
+
+  <button class="cart-float" id="cartFloat" onclick="openCart()">
+    Bestelling bekijken <span class="badge" id="cartBadge">0</span>
+  </button>
+
+  <!-- Cart drawer -->
+  <div class="cart-overlay" id="cartOverlay" onclick="closeCart()"></div>
+  <div class="cart-drawer" id="cartDrawer">
+    <div class="cart-drawer-header">
+      <h2>Je bestelling</h2>
+      <button class="close-drawer" onclick="closeCart()">&times;</button>
+    </div>
+    <div class="cart-drawer-items" id="cartItems"></div>
+    <div class="cart-drawer-footer">
+      <input type="text" class="cart-name-input" id="customerName"
+             placeholder="Je naam (verplicht)" maxlength="50">
+      <div class="cart-total-row">
+        <span>Totaal</span>
+        <span id="cartTotal">EUR 0,00</span>
+      </div>
+      <button class="checkout-btn" id="checkoutBtn" onclick="startCheckout()">Afrekenen</button>
+    </div>
+  </div>
+
+  <!-- Payment overlay -->
+  <div class="payment-overlay" id="paymentOverlay">
+    <div class="payment-box">
+      <h2>Betaling</h2>
+      <div id="adyen-dropin">
+        <div class="spinner"></div>
+        <p>Betaalpagina laden...</p>
+      </div>
+      <div class="error-msg" id="paymentError"></div>
+    </div>
+  </div>
+
+  <script>
+    let categories = [];
+    let cart = [];
+
+    // Load menu
+    async function loadMenu() {
+      try {
+        const res = await fetch('/api/menu');
+        const data = await res.json();
+        categories = data.categories;
+        document.getElementById('shopName').textContent = data.shopName;
+        document.title = `Bestellen - ${data.shopName}`;
+        renderMenu();
+      } catch (err) {
+        console.error('Fout bij laden menu:', err);
+      }
+    }
+
+    function renderMenu() {
+      // Tabs
+      const tabs = document.getElementById('categoryTabs');
+      tabs.innerHTML = categories.map((cat, i) => `
+        <button class="cat-tab ${i === 0 ? 'active' : ''}"
+                onclick="scrollToCategory(${cat.id}, this)">${cat.name}</button>
+      `).join('');
+
+      // Product sections
+      const container = document.getElementById('menuContainer');
+      container.innerHTML = categories.map(cat => `
+        <div class="category-section" id="cat-${cat.id}">
+          <h2>${cat.name}</h2>
+          <div class="product-list">
+            ${cat.products.map(p => `
+              <div class="product-card" onclick="addToCart(${p.id}, '${p.name.replace(/'/g, "\\'")}', ${p.price})">
+                <div class="product-name">${p.name}</div>
+                <div class="product-price">EUR ${formatPrice(p.price)}</div>
+                <button class="add-btn">Toevoegen</button>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function scrollToCategory(catId, btn) {
+      document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('cat-' + catId).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // Cart
+    function addToCart(id, name, price) {
+      const existing = cart.find(item => item.id === id);
+      if (existing) {
+        existing.quantity++;
+      } else {
+        cart.push({ id, name, price, quantity: 1 });
+      }
+      updateCartUI();
+    }
+
+    function changeQty(index, delta) {
+      cart[index].quantity += delta;
+      if (cart[index].quantity <= 0) cart.splice(index, 1);
+      updateCartUI();
+      renderCartItems();
+    }
+
+    function updateCartUI() {
+      const count = cart.reduce((sum, i) => sum + i.quantity, 0);
+      const total = cart.reduce((sum, i) => sum + i.price * i.quantity, 0);
+
+      const floatBtn = document.getElementById('cartFloat');
+      floatBtn.style.display = count > 0 ? 'block' : 'none';
+      document.getElementById('cartBadge').textContent = count;
+      document.getElementById('cartTotal').textContent = `EUR ${formatPrice(total)}`;
+    }
+
+    function renderCartItems() {
+      const container = document.getElementById('cartItems');
+      container.innerHTML = cart.map((item, i) => `
+        <div class="drawer-item">
+          <div class="drawer-item-info">
+            <div class="drawer-item-name">${item.name}</div>
+            <div class="drawer-item-price">EUR ${formatPrice(item.price * item.quantity)}</div>
+          </div>
+          <div class="drawer-qty">
+            <button onclick="changeQty(${i}, -1)">-</button>
+            <span>${item.quantity}</span>
+            <button onclick="changeQty(${i}, 1)">+</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function openCart() {
+      renderCartItems();
+      document.getElementById('cartOverlay').classList.add('active');
+      document.getElementById('cartDrawer').classList.add('active');
+    }
+
+    function closeCart() {
+      document.getElementById('cartOverlay').classList.remove('active');
+      document.getElementById('cartDrawer').classList.remove('active');
+    }
+
+    // Checkout
+    async function startCheckout() {
+      const name = document.getElementById('customerName').value.trim();
+      if (!name) {
+        document.getElementById('customerName').style.borderColor = '#e74c3c';
+        document.getElementById('customerName').focus();
+        return;
+      }
+      document.getElementById('customerName').style.borderColor = '#ddd';
+
+      if (cart.length === 0) return;
+
+      const checkoutBtn = document.getElementById('checkoutBtn');
+      checkoutBtn.disabled = true;
+      checkoutBtn.textContent = 'Laden...';
+
+      try {
+        const res = await fetch('/api/orders/create-qr', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: cart.map(i => ({ product_id: i.id, name: i.name, price: i.price, quantity: i.quantity })),
+            customer_name: name,
+          }),
+        });
+
+        const data = await res.json();
+        if (data.error) {
+          document.getElementById('paymentError').textContent = data.error;
+          checkoutBtn.disabled = false;
+          checkoutBtn.textContent = 'Afrekenen';
+          return;
+        }
+
+        // Close cart drawer, show payment overlay
+        closeCart();
+        document.getElementById('paymentOverlay').classList.add('active');
+
+        // Load Adyen Drop-in
+        loadAdyenDropin(data);
+      } catch (err) {
+        console.error('Checkout fout:', err);
+        document.getElementById('paymentError').textContent = 'Kan betaling niet starten';
+        checkoutBtn.disabled = false;
+        checkoutBtn.textContent = 'Afrekenen';
+      }
+    }
+
+    async function loadAdyenDropin(data) {
+      try {
+        // Dynamically load Adyen Web SDK
+        const env = data.environment === 'live' ? 'live' : 'test';
+        const sdkBase = env === 'live'
+          ? 'https://checkoutshopper-live.adyen.com/checkoutshopper/sdk/5.65.0'
+          : 'https://checkoutshopper-test.adyen.com/checkoutshopper/sdk/5.65.0';
+
+        // Load CSS
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = `${sdkBase}/adyen.css`;
+        document.head.appendChild(link);
+
+        // Load JS
+        const script = document.createElement('script');
+        script.src = `${sdkBase}/adyen.js`;
+        script.onload = () => initDropin(data);
+        script.onerror = () => {
+          document.getElementById('adyen-dropin').innerHTML = '<p>Kan betaalpagina niet laden. Controleer je internetverbinding.</p>';
+        };
+        document.head.appendChild(script);
+      } catch (err) {
+        document.getElementById('adyen-dropin').innerHTML = '<p>Fout bij laden betaalpagina</p>';
+      }
+    }
+
+    async function initDropin(data) {
+      try {
+        const configuration = {
+          environment: data.environment === 'live' ? 'live' : 'test',
+          clientKey: data.clientKey,
+          session: {
+            id: data.sessionId,
+            sessionData: data.sessionData,
+          },
+          locale: 'nl-NL',
+          countryCode: 'NL',
+          onPaymentCompleted: (result) => {
+            if (result.resultCode === 'Authorised') {
+              window.location.href = `/bedankt.html?orderid=${data.orderId}`;
+            } else {
+              document.getElementById('adyen-dropin').innerHTML = `<p>Betaling niet gelukt: ${result.resultCode}</p>`;
+            }
+          },
+          onError: (error) => {
+            console.error('Adyen fout:', error);
+            document.getElementById('paymentError').textContent = 'Fout bij betaling';
+          },
+        };
+
+        const checkout = await AdyenCheckout(configuration);
+        document.getElementById('adyen-dropin').innerHTML = '';
+        checkout.create('dropin').mount('#adyen-dropin');
+      } catch (err) {
+        console.error('Dropin init fout:', err);
+        document.getElementById('adyen-dropin').innerHTML = '<p>Kan betaalmethoden niet laden</p>';
+      }
+    }
+
+    function formatPrice(cents) {
+      return (cents / 100).toFixed(2).replace('.', ',');
+    }
+
+    loadMenu();
+  </script>
+</body>
+</html>

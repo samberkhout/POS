@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Kassa - POS</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f2f5;
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* Connection warning */
+    #connection-warning {
+      display: none;
+      position: fixed; top: 0; left: 0; right: 0;
+      background: #e74c3c; color: white; text-align: center;
+      padding: 10px; font-size: 18px; font-weight: bold; z-index: 1000;
+    }
+
+    /* QR notification */
+    #qr-badge {
+      display: none;
+      position: fixed; top: 10px; right: 10px;
+      background: #e74c3c; color: white;
+      border-radius: 50%; width: 50px; height: 50px;
+      font-size: 24px; font-weight: bold; z-index: 999;
+      align-items: center; justify-content: center;
+      animation: pulse 1s infinite;
+      cursor: pointer;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+    }
+
+    /* Main layout */
+    .container {
+      display: flex; height: 100vh;
+    }
+
+    /* Left panel - Products */
+    .products-panel {
+      flex: 1; display: flex; flex-direction: column;
+      background: white;
+    }
+    .category-tabs {
+      display: flex; overflow-x: auto; background: #2c3e50;
+      flex-shrink: 0;
+    }
+    .category-tabs::-webkit-scrollbar { display: none; }
+    .category-tab {
+      padding: 16px 24px; color: #bdc3c7; font-size: 18px; font-weight: 600;
+      white-space: nowrap; cursor: pointer; border: none; background: none;
+      border-bottom: 3px solid transparent; transition: all 0.2s;
+    }
+    .category-tab.active {
+      color: white; border-bottom-color: #3498db;
+    }
+    .category-tab:active { background: rgba(255,255,255,0.1); }
+
+    .products-grid {
+      flex: 1; display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 10px; padding: 12px; overflow-y: auto;
+      align-content: start;
+    }
+    .product-btn {
+      background: #3498db; color: white; border: none; border-radius: 12px;
+      padding: 20px 10px; font-size: 16px; font-weight: 600;
+      cursor: pointer; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 8px;
+      min-height: 100px; transition: transform 0.1s;
+    }
+    .product-btn:active { transform: scale(0.95); }
+    .product-btn .price {
+      font-size: 14px; opacity: 0.9;
+    }
+
+    /* Right panel - Cart */
+    .cart-panel {
+      width: 380px; display: flex; flex-direction: column;
+      background: #2c3e50; color: white; flex-shrink: 0;
+    }
+    .cart-header {
+      padding: 16px 20px; font-size: 22px; font-weight: 700;
+      border-bottom: 1px solid #34495e;
+    }
+    .cart-items {
+      flex: 1; overflow-y: auto; padding: 10px;
+    }
+    .cart-item {
+      display: flex; align-items: center; padding: 12px;
+      background: #34495e; border-radius: 8px; margin-bottom: 8px;
+      gap: 10px;
+    }
+    .cart-item.selected { outline: 2px solid #3498db; }
+    .cart-item-info { flex: 1; }
+    .cart-item-name { font-size: 16px; font-weight: 600; }
+    .cart-item-price { font-size: 14px; opacity: 0.8; }
+    .cart-item-qty {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .qty-btn {
+      width: 36px; height: 36px; border-radius: 50%;
+      border: none; font-size: 20px; font-weight: bold;
+      cursor: pointer; display: flex; align-items: center;
+      justify-content: center; color: white;
+    }
+    .qty-btn.minus { background: #e74c3c; }
+    .qty-btn.plus { background: #27ae60; }
+    .qty-btn:active { opacity: 0.8; }
+    .qty-val { font-size: 20px; font-weight: bold; min-width: 30px; text-align: center; }
+
+    .cart-footer {
+      border-top: 1px solid #34495e; padding: 12px;
+    }
+    .cart-total {
+      font-size: 28px; font-weight: 700; text-align: right;
+      padding: 10px; margin-bottom: 10px;
+    }
+    .cart-actions {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+    .action-btn {
+      padding: 18px; border: none; border-radius: 10px;
+      font-size: 16px; font-weight: 700; cursor: pointer;
+      transition: transform 0.1s;
+    }
+    .action-btn:active { transform: scale(0.95); }
+    .btn-pin { background: #27ae60; color: white; }
+    .btn-cash { background: #3498db; color: white; }
+    .btn-remove { background: #e74c3c; color: white; }
+    .btn-clear { background: #95a5a6; color: white; }
+
+    /* Payment modal */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7); z-index: 500;
+      align-items: center; justify-content: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: white; border-radius: 20px; padding: 40px;
+      text-align: center; max-width: 500px; width: 90%;
+      color: #2c3e50;
+    }
+    .modal h2 { font-size: 28px; margin-bottom: 20px; }
+    .modal p { font-size: 20px; margin-bottom: 10px; }
+    .modal .spinner {
+      width: 60px; height: 60px; border: 5px solid #eee;
+      border-top-color: #3498db; border-radius: 50%;
+      animation: spin 1s linear infinite; margin: 20px auto;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .modal .cancel-btn {
+      margin-top: 20px; padding: 14px 40px;
+      background: #e74c3c; color: white; border: none;
+      border-radius: 10px; font-size: 18px; font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* Result modal */
+    .result-icon { font-size: 80px; margin-bottom: 16px; }
+    .result-success { color: #27ae60; }
+    .result-error { color: #e74c3c; }
+    .modal .close-btn {
+      margin-top: 20px; padding: 14px 40px;
+      background: #2c3e50; color: white; border: none;
+      border-radius: 10px; font-size: 18px; font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* Empty state */
+    .empty-cart {
+      flex: 1; display: flex; align-items: center;
+      justify-content: center; opacity: 0.4; font-size: 18px;
+    }
+  </style>
+</head>
+<body>
+  <div id="connection-warning">Verbinding verloren — opnieuw verbinden...</div>
+  <div id="qr-badge" onclick="acknowledgeQR()"></div>
+
+  <div class="container">
+    <!-- Products -->
+    <div class="products-panel">
+      <div class="category-tabs" id="categoryTabs"></div>
+      <div class="products-grid" id="productsGrid"></div>
+    </div>
+
+    <!-- Cart -->
+    <div class="cart-panel">
+      <div class="cart-header">Bestelling</div>
+      <div class="cart-items" id="cartItems">
+        <div class="empty-cart">Tik op een product om toe te voegen</div>
+      </div>
+      <div class="cart-footer">
+        <div class="cart-total" id="cartTotal">EUR 0,00</div>
+        <div class="cart-actions">
+          <button class="action-btn btn-pin" onclick="payPin()">Pin betalen</button>
+          <button class="action-btn btn-cash" onclick="payCash()">Contant betalen</button>
+          <button class="action-btn btn-remove" onclick="removeSelected()">Verwijder</button>
+          <button class="action-btn btn-clear" onclick="clearCart()">Leeg</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Payment waiting modal -->
+  <div class="modal-overlay" id="paymentModal">
+    <div class="modal">
+      <h2>Pinbetaling</h2>
+      <div class="spinner"></div>
+      <p>Wachten op betaling...</p>
+      <p id="paymentAmount" style="font-size: 32px; font-weight: 700;"></p>
+      <button class="cancel-btn" onclick="cancelPin()">Annuleren</button>
+    </div>
+  </div>
+
+  <!-- Result modal -->
+  <div class="modal-overlay" id="resultModal">
+    <div class="modal">
+      <div class="result-icon" id="resultIcon"></div>
+      <h2 id="resultTitle"></h2>
+      <p id="resultMessage"></p>
+      <button class="close-btn" onclick="closeResult()">OK</button>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    // State
+    let categories = [];
+    let cart = [];
+    let selectedCartIndex = -1;
+    let activeCategory = null;
+    let qrOrderCount = 0;
+
+    // Socket.io
+    const socket = io();
+    socket.emit('join', { role: 'cashier' });
+
+    socket.on('connect', () => {
+      document.getElementById('connection-warning').style.display = 'none';
+      loadMenu();
+    });
+
+    socket.on('disconnect', () => {
+      document.getElementById('connection-warning').style.display = 'block';
+    });
+
+    socket.on('qr-order-received', (order) => {
+      qrOrderCount++;
+      const badge = document.getElementById('qr-badge');
+      badge.textContent = qrOrderCount;
+      badge.style.display = 'flex';
+    });
+
+    socket.on('products-updated', () => {
+      loadMenu();
+    });
+
+    // Load menu
+    async function loadMenu() {
+      try {
+        const res = await fetch('/api/menu');
+        const data = await res.json();
+        categories = data.categories;
+        document.title = `Kassa - ${data.shopName}`;
+        renderCategories();
+        if (categories.length > 0) {
+          selectCategory(activeCategory || categories[0].id);
+        }
+      } catch (err) {
+        console.error('Fout bij laden menu:', err);
+      }
+    }
+
+    function renderCategories() {
+      const tabs = document.getElementById('categoryTabs');
+      tabs.innerHTML = categories.map(cat => `
+        <button class="category-tab ${cat.id === activeCategory ? 'active' : ''}"
+                onclick="selectCategory(${cat.id})">${cat.name}</button>
+      `).join('');
+    }
+
+    function selectCategory(catId) {
+      activeCategory = catId;
+      renderCategories();
+      const cat = categories.find(c => c.id === catId);
+      if (!cat) return;
+
+      const grid = document.getElementById('productsGrid');
+      grid.innerHTML = cat.products.map(p => `
+        <button class="product-btn" onclick="addToCart(${p.id}, '${p.name.replace(/'/g, "\\'")}', ${p.price})">
+          ${p.name}
+          <span class="price">EUR ${formatPrice(p.price)}</span>
+        </button>
+      `).join('');
+    }
+
+    // Cart management
+    function addToCart(id, name, price) {
+      const existing = cart.find(item => item.id === id);
+      if (existing) {
+        existing.quantity++;
+      } else {
+        cart.push({ id, name, price, quantity: 1 });
+      }
+      renderCart();
+    }
+
+    function renderCart() {
+      const container = document.getElementById('cartItems');
+      if (cart.length === 0) {
+        container.innerHTML = '<div class="empty-cart">Tik op een product om toe te voegen</div>';
+        selectedCartIndex = -1;
+      } else {
+        container.innerHTML = cart.map((item, i) => `
+          <div class="cart-item ${i === selectedCartIndex ? 'selected' : ''}"
+               onclick="selectCartItem(${i})">
+            <div class="cart-item-info">
+              <div class="cart-item-name">${item.name}</div>
+              <div class="cart-item-price">EUR ${formatPrice(item.price * item.quantity)}</div>
+            </div>
+            <div class="cart-item-qty">
+              <button class="qty-btn minus" onclick="event.stopPropagation(); changeQty(${i}, -1)">-</button>
+              <span class="qty-val">${item.quantity}</span>
+              <button class="qty-btn plus" onclick="event.stopPropagation(); changeQty(${i}, 1)">+</button>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      document.getElementById('cartTotal').textContent = `EUR ${formatPrice(total)}`;
+    }
+
+    function selectCartItem(index) {
+      selectedCartIndex = selectedCartIndex === index ? -1 : index;
+      renderCart();
+    }
+
+    function changeQty(index, delta) {
+      cart[index].quantity += delta;
+      if (cart[index].quantity <= 0) {
+        cart.splice(index, 1);
+        if (selectedCartIndex >= cart.length) selectedCartIndex = -1;
+      }
+      renderCart();
+    }
+
+    function removeSelected() {
+      if (selectedCartIndex >= 0 && selectedCartIndex < cart.length) {
+        cart.splice(selectedCartIndex, 1);
+        selectedCartIndex = -1;
+        renderCart();
+      }
+    }
+
+    function clearCart() {
+      cart = [];
+      selectedCartIndex = -1;
+      renderCart();
+    }
+
+    // Payment
+    async function payCash() {
+      if (cart.length === 0) return;
+
+      try {
+        const res = await fetch('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: cart.map(i => ({ product_id: i.id, name: i.name, price: i.price, quantity: i.quantity })),
+            payment_method: 'cash',
+          }),
+        });
+
+        const order = await res.json();
+        if (order.id) {
+          showResult(true, 'Betaling gelukt!', `Bestelling #${order.order_number} — Contant betaald`);
+          cart = [];
+          selectedCartIndex = -1;
+          renderCart();
+        }
+      } catch (err) {
+        showResult(false, 'Fout', 'Kan bestelling niet aanmaken');
+      }
+    }
+
+    async function payPin() {
+      if (cart.length === 0) return;
+
+      const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      document.getElementById('paymentAmount').textContent = `EUR ${formatPrice(total)}`;
+      document.getElementById('paymentModal').classList.add('active');
+
+      try {
+        const res = await fetch('/api/payment/pin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: cart.map(i => ({ product_id: i.id, name: i.name, price: i.price, quantity: i.quantity })),
+          }),
+        });
+
+        document.getElementById('paymentModal').classList.remove('active');
+        const result = await res.json();
+
+        if (result.success) {
+          showResult(true, 'Betaling gelukt!', `Bestelling #${result.order.order_number} — PIN betaald`);
+          cart = [];
+          selectedCartIndex = -1;
+          renderCart();
+        } else {
+          showResult(false, 'Betaling mislukt', result.error || 'Onbekende fout');
+        }
+      } catch (err) {
+        document.getElementById('paymentModal').classList.remove('active');
+        showResult(false, 'Fout', 'Kan geen verbinding maken met server');
+      }
+    }
+
+    async function cancelPin() {
+      try {
+        await fetch('/api/payment/pin/cancel', { method: 'POST' });
+      } catch (e) {}
+      document.getElementById('paymentModal').classList.remove('active');
+    }
+
+    function showResult(success, title, message) {
+      document.getElementById('resultIcon').textContent = success ? '\u2713' : '\u2717';
+      document.getElementById('resultIcon').className = 'result-icon ' + (success ? 'result-success' : 'result-error');
+      document.getElementById('resultTitle').textContent = title;
+      document.getElementById('resultMessage').textContent = message;
+      document.getElementById('resultModal').classList.add('active');
+
+      if (success) {
+        setTimeout(() => closeResult(), 3000);
+      }
+    }
+
+    function closeResult() {
+      document.getElementById('resultModal').classList.remove('active');
+    }
+
+    function acknowledgeQR() {
+      qrOrderCount = 0;
+      document.getElementById('qr-badge').style.display = 'none';
+    }
+
+    function formatPrice(cents) {
+      return (cents / 100).toFixed(2).replace('.', ',');
+    }
+
+    // Initial load
+    loadMenu();
+  </script>
+</body>
+</html>

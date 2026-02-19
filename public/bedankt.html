@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bedankt!</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f8f9fa; color: #2c3e50;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 20px;
+    }
+
+    .card {
+      background: white; border-radius: 20px; padding: 40px;
+      text-align: center; max-width: 420px; width: 100%;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+
+    .checkmark {
+      width: 80px; height: 80px; border-radius: 50%;
+      background: #27ae60; color: white;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 40px; margin: 0 auto 20px;
+    }
+
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    .subtitle { font-size: 16px; color: #7f8c8d; margin-bottom: 24px; }
+
+    .order-number {
+      font-size: 48px; font-weight: 800; color: #2c3e50;
+      margin-bottom: 8px;
+    }
+    .order-label { font-size: 14px; color: #7f8c8d; margin-bottom: 24px; }
+
+    /* Status progress */
+    .status-track {
+      display: flex; justify-content: center; gap: 0;
+      margin-bottom: 24px;
+    }
+    .status-step {
+      display: flex; flex-direction: column; align-items: center;
+      width: 110px; position: relative;
+    }
+    .status-dot {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: #ecf0f1; display: flex; align-items: center;
+      justify-content: center; font-size: 14px; color: white;
+      font-weight: bold; margin-bottom: 6px; z-index: 1;
+    }
+    .status-dot.active { background: #27ae60; }
+    .status-dot.current { background: #3498db; animation: pulse 1.5s infinite; }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(52,152,219,0.4); }
+      50% { box-shadow: 0 0 0 10px rgba(52,152,219,0); }
+    }
+    .status-label { font-size: 12px; color: #7f8c8d; }
+    .status-label.active { color: #27ae60; font-weight: 600; }
+    .status-label.current { color: #3498db; font-weight: 600; }
+
+    .status-line {
+      position: absolute; top: 14px; left: calc(50% + 14px);
+      width: calc(100% - 28px); height: 3px; background: #ecf0f1;
+    }
+    .status-line.active { background: #27ae60; }
+
+    .info-text {
+      font-size: 15px; color: #7f8c8d; line-height: 1.5;
+    }
+
+    .loading { color: #7f8c8d; font-size: 16px; }
+
+    .error-card {
+      background: #fff3f3; border: 2px solid #e74c3c;
+    }
+    .error-card .checkmark { background: #e74c3c; }
+  </style>
+</head>
+<body>
+  <div class="card" id="card">
+    <div class="loading" id="loading">Bestelling ophalen...</div>
+    <div id="content" style="display:none;">
+      <div class="checkmark" id="icon">&#x2713;</div>
+      <h1 id="title">Bedankt voor je bestelling!</h1>
+      <p class="subtitle" id="customerGreeting"></p>
+
+      <div class="order-number" id="orderNumber"></div>
+      <p class="order-label">Bestelnummer</p>
+
+      <div class="status-track" id="statusTrack"></div>
+
+      <p class="info-text" id="infoText">
+        Je bestelling wordt bereid. We roepen je naam wanneer deze klaar is.
+      </p>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const orderId = params.get('orderid');
+
+    const statusSteps = [
+      { key: 'wacht_op_betaling', label: 'Betaald' },
+      { key: 'nieuw', label: 'Ontvangen' },
+      { key: 'in_bereiding', label: 'In bereiding' },
+      { key: 'klaar', label: 'Klaar!' },
+    ];
+
+    function getStatusIndex(status) {
+      // Map status to progress index
+      const map = {
+        'wacht_op_betaling': 0,
+        'nieuw': 1,
+        'in_bereiding': 2,
+        'klaar': 3,
+      };
+      return map[status] ?? 1;
+    }
+
+    function renderStatus(status) {
+      const currentIdx = getStatusIndex(status);
+      const track = document.getElementById('statusTrack');
+
+      track.innerHTML = statusSteps.map((step, i) => {
+        let dotClass = 'status-dot';
+        let labelClass = 'status-label';
+        let dotContent = '';
+
+        if (i < currentIdx) {
+          dotClass += ' active';
+          labelClass += ' active';
+          dotContent = '&#x2713;';
+        } else if (i === currentIdx) {
+          dotClass += ' current';
+          labelClass += ' current';
+          dotContent = i + 1;
+        } else {
+          dotContent = i + 1;
+        }
+
+        let line = '';
+        if (i < statusSteps.length - 1) {
+          const lineClass = i < currentIdx ? 'status-line active' : 'status-line';
+          line = `<div class="${lineClass}"></div>`;
+        }
+
+        return `
+          <div class="status-step">
+            <div class="${dotClass}">${dotContent}</div>
+            <span class="${labelClass}">${step.label}</span>
+            ${line}
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function checkStatus() {
+      if (!orderId) {
+        document.getElementById('loading').textContent = 'Geen bestelnummer gevonden';
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/orders/${orderId}/status`);
+        if (!res.ok) {
+          document.getElementById('loading').textContent = 'Bestelling niet gevonden';
+          return;
+        }
+
+        const data = await res.json();
+
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('content').style.display = 'block';
+        document.getElementById('orderNumber').textContent = `#${data.order_number}`;
+
+        if (data.customer_name) {
+          document.getElementById('customerGreeting').textContent = `Hoi ${data.customer_name}!`;
+        }
+
+        renderStatus(data.status);
+
+        if (data.status === 'klaar') {
+          document.getElementById('title').textContent = 'Je bestelling is klaar!';
+          document.getElementById('infoText').textContent = 'Je kunt je bestelling komen ophalen.';
+          return; // Stop polling
+        }
+
+        if (data.status === 'wacht_op_betaling') {
+          document.getElementById('infoText').textContent = 'Je betaling wordt verwerkt...';
+        }
+
+        // Keep polling
+        setTimeout(checkStatus, 5000);
+      } catch (err) {
+        console.error('Fout bij ophalen status:', err);
+        setTimeout(checkStatus, 5000);
+      }
+    }
+
+    checkStatus();
+  </script>
+</body>
+</html>

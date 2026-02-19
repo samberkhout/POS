@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin - POS</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f2f5; color: #2c3e50;
+    }
+
+    /* Login */
+    .login-overlay {
+      position: fixed; inset: 0; background: #2c3e50;
+      display: flex; align-items: center; justify-content: center; z-index: 2000;
+    }
+    .login-overlay.hidden { display: none; }
+    .login-box {
+      background: white; padding: 40px; border-radius: 16px;
+      width: 90%; max-width: 400px; text-align: center;
+    }
+    .login-box h1 { margin-bottom: 24px; font-size: 24px; }
+    .login-box input {
+      width: 100%; padding: 14px; font-size: 18px; border: 2px solid #ddd;
+      border-radius: 8px; margin-bottom: 16px; text-align: center;
+    }
+    .login-box button {
+      width: 100%; padding: 14px; font-size: 18px; font-weight: 600;
+      background: #3498db; color: white; border: none; border-radius: 8px;
+      cursor: pointer;
+    }
+    .login-error { color: #e74c3c; margin-bottom: 12px; font-size: 14px; }
+
+    /* Change password modal */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6); z-index: 1500;
+      align-items: center; justify-content: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal-box {
+      background: white; padding: 30px; border-radius: 16px;
+      width: 90%; max-width: 460px;
+    }
+    .modal-box h2 { margin-bottom: 16px; }
+    .modal-box label { display: block; margin-bottom: 4px; font-weight: 600; font-size: 14px; }
+    .modal-box input, .modal-box select {
+      width: 100%; padding: 12px; font-size: 16px; border: 2px solid #ddd;
+      border-radius: 8px; margin-bottom: 12px;
+    }
+    .modal-actions {
+      display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px;
+    }
+    .modal-actions button {
+      padding: 12px 24px; border: none; border-radius: 8px;
+      font-size: 16px; font-weight: 600; cursor: pointer;
+    }
+    .btn-primary { background: #3498db; color: white; }
+    .btn-danger { background: #e74c3c; color: white; }
+    .btn-secondary { background: #95a5a6; color: white; }
+    .btn-success { background: #27ae60; color: white; }
+
+    /* Layout */
+    .app { display: flex; min-height: 100vh; }
+    .sidebar {
+      width: 220px; background: #2c3e50; color: white;
+      padding: 20px 0; flex-shrink: 0;
+    }
+    .sidebar h2 {
+      padding: 0 20px 20px; font-size: 20px;
+      border-bottom: 1px solid #34495e;
+    }
+    .nav-item {
+      display: block; width: 100%; padding: 14px 20px;
+      background: none; border: none; color: #bdc3c7;
+      font-size: 16px; text-align: left; cursor: pointer;
+    }
+    .nav-item.active { background: #34495e; color: white; font-weight: 600; }
+    .nav-item:hover { background: #34495e; }
+
+    .content {
+      flex: 1; padding: 24px; overflow-y: auto;
+    }
+    .section { display: none; }
+    .section.active { display: block; }
+    .section h2 { font-size: 22px; margin-bottom: 16px; }
+
+    /* Tables */
+    table {
+      width: 100%; border-collapse: collapse; background: white;
+      border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    th, td { padding: 12px 16px; text-align: left; font-size: 14px; }
+    th { background: #ecf0f1; font-weight: 600; }
+    tr:not(:last-child) td { border-bottom: 1px solid #ecf0f1; }
+    .badge {
+      display: inline-block; padding: 3px 10px; border-radius: 10px;
+      font-size: 12px; font-weight: 600;
+    }
+    .badge-active { background: #d4edda; color: #155724; }
+    .badge-inactive { background: #f8d7da; color: #721c24; }
+
+    .toolbar {
+      display: flex; gap: 10px; margin-bottom: 16px; align-items: center;
+      flex-wrap: wrap;
+    }
+    .toolbar button {
+      padding: 10px 20px; border: none; border-radius: 8px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    .toolbar input[type="date"] {
+      padding: 10px; border: 2px solid #ddd; border-radius: 8px;
+      font-size: 14px;
+    }
+
+    /* Settings */
+    .settings-group {
+      background: white; padding: 20px; border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 16px;
+    }
+    .settings-group h3 { margin-bottom: 12px; }
+    .settings-row {
+      display: flex; gap: 10px; align-items: center; margin-bottom: 10px;
+    }
+    .settings-row input {
+      flex: 1; padding: 10px; border: 2px solid #ddd;
+      border-radius: 8px; font-size: 16px;
+    }
+    .settings-row button {
+      padding: 10px 20px; border: none; border-radius: 8px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    .qr-display {
+      text-align: center; padding: 20px;
+    }
+    .qr-display img { max-width: 250px; margin: 10px 0; }
+
+    /* Daily totals */
+    .totals-bar {
+      display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap;
+    }
+    .total-card {
+      background: white; padding: 16px 24px; border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1); min-width: 150px;
+    }
+    .total-card .label { font-size: 13px; color: #7f8c8d; }
+    .total-card .value { font-size: 24px; font-weight: 700; }
+
+    .action-btns { display: flex; gap: 6px; }
+    .action-btns button {
+      padding: 6px 12px; border: none; border-radius: 6px;
+      font-size: 13px; cursor: pointer; font-weight: 600;
+    }
+    .btn-edit { background: #3498db; color: white; }
+    .btn-delete { background: #e74c3c; color: white; }
+    .btn-toggle { background: #f39c12; color: white; }
+
+    .toast {
+      position: fixed; bottom: 20px; right: 20px;
+      background: #2c3e50; color: white; padding: 14px 24px;
+      border-radius: 8px; font-size: 14px; z-index: 3000;
+      display: none; animation: fadeIn 0.3s;
+    }
+    .toast.show { display: block; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; } }
+  </style>
+</head>
+<body>
+  <!-- Login -->
+  <div class="login-overlay" id="loginOverlay">
+    <div class="login-box">
+      <h1>Admin Login</h1>
+      <div class="login-error" id="loginError"></div>
+      <input type="password" id="loginPassword" placeholder="Wachtwoord" onkeydown="if(event.key==='Enter')login()">
+      <button onclick="login()">Inloggen</button>
+    </div>
+  </div>
+
+  <!-- Force password change -->
+  <div class="modal-overlay" id="passwordChangeModal">
+    <div class="modal-box">
+      <h2>Wachtwoord wijzigen</h2>
+      <p style="margin-bottom:16px;color:#7f8c8d;">Het standaard wachtwoord moet worden gewijzigd.</p>
+      <label>Nieuw wachtwoord</label>
+      <input type="password" id="newPasswordForce" placeholder="Minimaal 4 tekens">
+      <label>Bevestig wachtwoord</label>
+      <input type="password" id="confirmPasswordForce" placeholder="Herhaal wachtwoord">
+      <div class="login-error" id="forcePasswordError"></div>
+      <div class="modal-actions">
+        <button class="btn-primary" onclick="forceChangePassword()">Opslaan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Product modal -->
+  <div class="modal-overlay" id="productModal">
+    <div class="modal-box">
+      <h2 id="productModalTitle">Product toevoegen</h2>
+      <input type="hidden" id="productId">
+      <label>Naam</label>
+      <input type="text" id="productName" placeholder="Productnaam">
+      <label>Prijs (EUR)</label>
+      <input type="number" id="productPrice" step="0.01" min="0" placeholder="0,00">
+      <label>Categorie</label>
+      <select id="productCategory"></select>
+      <label>Actief</label>
+      <select id="productActive">
+        <option value="1">Ja</option>
+        <option value="0">Nee</option>
+      </select>
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeProductModal()">Annuleren</button>
+        <button class="btn-primary" onclick="saveProduct()">Opslaan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Category modal -->
+  <div class="modal-overlay" id="categoryModal">
+    <div class="modal-box">
+      <h2 id="categoryModalTitle">Categorie toevoegen</h2>
+      <input type="hidden" id="categoryId">
+      <label>Naam</label>
+      <input type="text" id="categoryName" placeholder="Categorienaam">
+      <label>Volgorde</label>
+      <input type="number" id="categorySortOrder" value="0" min="0">
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeCategoryModal()">Annuleren</button>
+        <button class="btn-primary" onclick="saveCategory()">Opslaan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm delete -->
+  <div class="modal-overlay" id="confirmModal">
+    <div class="modal-box">
+      <h2>Bevestiging</h2>
+      <p id="confirmMessage"></p>
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeConfirm()">Annuleren</button>
+        <button class="btn-danger" id="confirmBtn">Verwijderen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- App -->
+  <div class="app" id="app" style="display:none;">
+    <div class="sidebar">
+      <h2>Beheer</h2>
+      <button class="nav-item active" onclick="showSection('products', this)">Producten</button>
+      <button class="nav-item" onclick="showSection('categories', this)">Categorieen</button>
+      <button class="nav-item" onclick="showSection('orders', this)">Bestellingen</button>
+      <button class="nav-item" onclick="showSection('settings', this)">Instellingen</button>
+    </div>
+
+    <div class="content">
+      <!-- Products -->
+      <div class="section active" id="section-products">
+        <h2>Producten</h2>
+        <div class="toolbar">
+          <button class="btn-success" onclick="openProductModal()">+ Nieuw product</button>
+        </div>
+        <table>
+          <thead>
+            <tr><th>Naam</th><th>Prijs</th><th>Categorie</th><th>Status</th><th>Acties</th></tr>
+          </thead>
+          <tbody id="productsTable"></tbody>
+        </table>
+      </div>
+
+      <!-- Categories -->
+      <div class="section" id="section-categories">
+        <h2>Categorieen</h2>
+        <div class="toolbar">
+          <button class="btn-success" onclick="openCategoryModal()">+ Nieuwe categorie</button>
+        </div>
+        <table>
+          <thead>
+            <tr><th>Naam</th><th>Volgorde</th><th>Acties</th></tr>
+          </thead>
+          <tbody id="categoriesTable"></tbody>
+        </table>
+      </div>
+
+      <!-- Orders -->
+      <div class="section" id="section-orders">
+        <h2>Bestellingen</h2>
+        <div class="toolbar">
+          <input type="date" id="orderDate" onchange="loadOrders()">
+        </div>
+        <div class="totals-bar" id="totalsBar"></div>
+        <table>
+          <thead>
+            <tr><th>#</th><th>Tijd</th><th>Klant</th><th>Items</th><th>Totaal</th><th>Betaling</th><th>Herkomst</th><th>Status</th></tr>
+          </thead>
+          <tbody id="ordersTable"></tbody>
+        </table>
+      </div>
+
+      <!-- Settings -->
+      <div class="section" id="section-settings">
+        <h2>Instellingen</h2>
+
+        <div class="settings-group">
+          <h3>Winkelnaam</h3>
+          <div class="settings-row">
+            <input type="text" id="shopNameInput" placeholder="Winkelnaam">
+            <button class="btn-primary" onclick="saveShopName()">Opslaan</button>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>Wachtwoord wijzigen</h3>
+          <div class="settings-row">
+            <input type="password" id="currentPasswordInput" placeholder="Huidig wachtwoord">
+          </div>
+          <div class="settings-row">
+            <input type="password" id="newPasswordInput" placeholder="Nieuw wachtwoord">
+            <button class="btn-primary" onclick="changePassword()">Wijzigen</button>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>Printer</h3>
+          <div class="settings-row">
+            <button class="btn-primary" onclick="testPrinter()">Test printer</button>
+            <button class="btn-success" onclick="printQR()">Print QR code</button>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>QR Code bestelpagina</h3>
+          <div class="qr-display" id="qrDisplay">
+            <p>Laden...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    let token = sessionStorage.getItem('adminToken') || '';
+    let allCategories = [];
+
+    // Auth
+    async function login() {
+      const password = document.getElementById('loginPassword').value;
+      try {
+        const res = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          token = data.token;
+          sessionStorage.setItem('adminToken', token);
+          document.getElementById('loginOverlay').classList.add('hidden');
+          document.getElementById('app').style.display = 'flex';
+
+          if (!data.passwordChanged) {
+            document.getElementById('passwordChangeModal').classList.add('active');
+          }
+
+          loadAll();
+        } else {
+          document.getElementById('loginError').textContent = data.error;
+        }
+      } catch (err) {
+        document.getElementById('loginError').textContent = 'Kan geen verbinding maken met server';
+      }
+    }
+
+    async function forceChangePassword() {
+      const newPw = document.getElementById('newPasswordForce').value;
+      const confirmPw = document.getElementById('confirmPasswordForce').value;
+
+      if (newPw.length < 4) {
+        document.getElementById('forcePasswordError').textContent = 'Minimaal 4 tekens';
+        return;
+      }
+      if (newPw !== confirmPw) {
+        document.getElementById('forcePasswordError').textContent = 'Wachtwoorden komen niet overeen';
+        return;
+      }
+
+      const res = await apiFetch('/api/admin/password', 'POST', {
+        currentPassword: 'admin',
+        newPassword: newPw,
+      });
+
+      if (res.success) {
+        document.getElementById('passwordChangeModal').classList.remove('active');
+        showToast('Wachtwoord gewijzigd');
+      } else {
+        document.getElementById('forcePasswordError').textContent = res.error || 'Fout bij wijzigen';
+      }
+    }
+
+    // API helper
+    async function apiFetch(url, method = 'GET', body = null) {
+      const opts = {
+        method,
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      };
+      if (body) opts.body = JSON.stringify(body);
+
+      const res = await fetch(url, opts);
+      if (res.status === 401) {
+        sessionStorage.removeItem('adminToken');
+        document.getElementById('loginOverlay').classList.remove('hidden');
+        document.getElementById('app').style.display = 'none';
+        return null;
+      }
+      return res.json();
+    }
+
+    // Navigation
+    function showSection(name, btn) {
+      document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+      document.getElementById('section-' + name).classList.add('active');
+      if (btn) btn.classList.add('active');
+
+      if (name === 'orders') loadOrders();
+      if (name === 'settings') loadSettings();
+    }
+
+    // Load all data
+    function loadAll() {
+      loadCategories();
+      loadProducts();
+      loadQRCode();
+    }
+
+    // Products
+    async function loadProducts() {
+      const data = await apiFetch('/api/admin/products');
+      if (!data) return;
+
+      const tbody = document.getElementById('productsTable');
+      tbody.innerHTML = data.map(p => `
+        <tr>
+          <td>${escapeHtml(p.name)}</td>
+          <td>EUR ${formatPrice(p.price)}</td>
+          <td>${escapeHtml(p.category_name)}</td>
+          <td><span class="badge ${p.active ? 'badge-active' : 'badge-inactive'}">${p.active ? 'Actief' : 'Inactief'}</span></td>
+          <td>
+            <div class="action-btns">
+              <button class="btn-edit" onclick='editProduct(${JSON.stringify(p).replace(/'/g,"&#39;")})'>Bewerk</button>
+              <button class="btn-delete" onclick="deleteProduct(${p.id}, '${escapeHtml(p.name)}')">Verwijder</button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function openProductModal(product) {
+      document.getElementById('productModalTitle').textContent = product ? 'Product bewerken' : 'Product toevoegen';
+      document.getElementById('productId').value = product ? product.id : '';
+      document.getElementById('productName').value = product ? product.name : '';
+      document.getElementById('productPrice').value = product ? (product.price / 100).toFixed(2) : '';
+      document.getElementById('productActive').value = product ? (product.active ? '1' : '0') : '1';
+
+      // Populate category dropdown
+      const sel = document.getElementById('productCategory');
+      sel.innerHTML = allCategories.map(c =>
+        `<option value="${c.id}" ${product && product.category_id === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`
+      ).join('');
+
+      document.getElementById('productModal').classList.add('active');
+    }
+
+    function closeProductModal() {
+      document.getElementById('productModal').classList.remove('active');
+    }
+
+    function editProduct(p) {
+      openProductModal(p);
+    }
+
+    async function saveProduct() {
+      const id = document.getElementById('productId').value;
+      const body = {
+        name: document.getElementById('productName').value,
+        price: Math.round(parseFloat(document.getElementById('productPrice').value) * 100),
+        category_id: parseInt(document.getElementById('productCategory').value),
+        active: document.getElementById('productActive').value === '1',
+        sort_order: 0,
+      };
+
+      if (!body.name || isNaN(body.price)) {
+        showToast('Vul alle velden in');
+        return;
+      }
+
+      if (id) {
+        await apiFetch(`/api/admin/products/${id}`, 'PUT', body);
+      } else {
+        await apiFetch('/api/admin/products', 'POST', body);
+      }
+
+      closeProductModal();
+      loadProducts();
+      showToast('Product opgeslagen');
+    }
+
+    function deleteProduct(id, name) {
+      showConfirm(`Weet je zeker dat je "${name}" wilt verwijderen?`, async () => {
+        await apiFetch(`/api/admin/products/${id}`, 'DELETE');
+        loadProducts();
+        showToast('Product verwijderd');
+      });
+    }
+
+    // Categories
+    async function loadCategories() {
+      const data = await apiFetch('/api/admin/categories');
+      if (!data) return;
+      allCategories = data;
+
+      const tbody = document.getElementById('categoriesTable');
+      tbody.innerHTML = data.map(c => `
+        <tr>
+          <td>${escapeHtml(c.name)}</td>
+          <td>${c.sort_order}</td>
+          <td>
+            <div class="action-btns">
+              <button class="btn-edit" onclick='editCategory(${JSON.stringify(c).replace(/'/g,"&#39;")})'>Bewerk</button>
+              <button class="btn-delete" onclick="deleteCategory(${c.id}, '${escapeHtml(c.name)}')">Verwijder</button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function openCategoryModal(category) {
+      document.getElementById('categoryModalTitle').textContent = category ? 'Categorie bewerken' : 'Categorie toevoegen';
+      document.getElementById('categoryId').value = category ? category.id : '';
+      document.getElementById('categoryName').value = category ? category.name : '';
+      document.getElementById('categorySortOrder').value = category ? category.sort_order : 0;
+      document.getElementById('categoryModal').classList.add('active');
+    }
+
+    function closeCategoryModal() {
+      document.getElementById('categoryModal').classList.remove('active');
+    }
+
+    function editCategory(c) {
+      openCategoryModal(c);
+    }
+
+    async function saveCategory() {
+      const id = document.getElementById('categoryId').value;
+      const body = {
+        name: document.getElementById('categoryName').value,
+        sort_order: parseInt(document.getElementById('categorySortOrder').value) || 0,
+      };
+
+      if (!body.name) {
+        showToast('Vul een naam in');
+        return;
+      }
+
+      if (id) {
+        await apiFetch(`/api/admin/categories/${id}`, 'PUT', body);
+      } else {
+        await apiFetch('/api/admin/categories', 'POST', body);
+      }
+
+      closeCategoryModal();
+      loadCategories();
+      loadProducts();
+      showToast('Categorie opgeslagen');
+    }
+
+    function deleteCategory(id, name) {
+      showConfirm(`Weet je zeker dat je categorie "${name}" wilt verwijderen?`, async () => {
+        const result = await apiFetch(`/api/admin/categories/${id}`, 'DELETE');
+        if (result && result.error) {
+          showToast(result.error);
+        } else {
+          loadCategories();
+          showToast('Categorie verwijderd');
+        }
+      });
+    }
+
+    // Orders
+    async function loadOrders() {
+      const dateInput = document.getElementById('orderDate');
+      if (!dateInput.value) {
+        dateInput.value = new Date().toISOString().split('T')[0];
+      }
+
+      const data = await apiFetch(`/api/admin/orders?date=${dateInput.value}`);
+      if (!data) return;
+
+      // Totals
+      const t = data.totals;
+      document.getElementById('totalsBar').innerHTML = `
+        <div class="total-card"><div class="label">Omzet</div><div class="value">EUR ${formatPrice(t.total_revenue)}</div></div>
+        <div class="total-card"><div class="label">Bestellingen</div><div class="value">${t.order_count}</div></div>
+        <div class="total-card"><div class="label">PIN</div><div class="value">EUR ${formatPrice(t.total_pin)}</div></div>
+        <div class="total-card"><div class="label">Contant</div><div class="value">EUR ${formatPrice(t.total_cash)}</div></div>
+        <div class="total-card"><div class="label">Online</div><div class="value">EUR ${formatPrice(t.total_online)}</div></div>
+      `;
+
+      const payLabels = { pin: 'PIN', cash: 'Contant', online: 'Online' };
+      const originLabels = { cashier: 'Kassa', qr: 'QR' };
+
+      const tbody = document.getElementById('ordersTable');
+      tbody.innerHTML = data.orders.map(o => {
+        const items = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
+        const itemsSummary = items.map(i => `${i.quantity}x ${i.name}`).join(', ');
+        const time = new Date(o.created_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+
+        return `
+          <tr>
+            <td><strong>${o.order_number}</strong></td>
+            <td>${time}</td>
+            <td>${escapeHtml(o.customer_name || '-')}</td>
+            <td style="max-width:300px;font-size:13px;">${escapeHtml(itemsSummary)}</td>
+            <td><strong>EUR ${formatPrice(o.total)}</strong></td>
+            <td>${payLabels[o.payment_method] || o.payment_method}</td>
+            <td>${originLabels[o.origin] || o.origin}</td>
+            <td>${o.status}</td>
+          </tr>
+        `;
+      }).join('');
+
+      if (data.orders.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:30px;color:#7f8c8d;">Geen bestellingen op deze datum</td></tr>';
+      }
+    }
+
+    // Settings
+    async function loadSettings() {
+      const data = await apiFetch('/api/admin/settings');
+      if (!data) return;
+      document.getElementById('shopNameInput').value = data.shop_name || '';
+    }
+
+    async function saveShopName() {
+      const name = document.getElementById('shopNameInput').value;
+      await apiFetch('/api/admin/settings', 'PUT', { shop_name: name });
+      showToast('Winkelnaam opgeslagen');
+    }
+
+    async function changePassword() {
+      const current = document.getElementById('currentPasswordInput').value;
+      const newPw = document.getElementById('newPasswordInput').value;
+      if (newPw.length < 4) { showToast('Minimaal 4 tekens'); return; }
+
+      const result = await apiFetch('/api/admin/password', 'POST', {
+        currentPassword: current,
+        newPassword: newPw,
+      });
+
+      if (result && result.success) {
+        document.getElementById('currentPasswordInput').value = '';
+        document.getElementById('newPasswordInput').value = '';
+        showToast('Wachtwoord gewijzigd');
+      } else {
+        showToast(result?.error || 'Fout bij wijzigen');
+      }
+    }
+
+    async function testPrinter() {
+      const result = await apiFetch('/api/printer/test', 'POST');
+      showToast(result?.success ? 'Test print verzonden' : (result?.error || 'Printer fout'));
+    }
+
+    async function printQR() {
+      const result = await apiFetch('/api/printer/qr', 'POST');
+      showToast(result?.success ? 'QR code geprint' : (result?.error || 'Printer fout'));
+    }
+
+    async function loadQRCode() {
+      try {
+        const res = await fetch('/api/qrcode', {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        const data = await res.json();
+        document.getElementById('qrDisplay').innerHTML = `
+          <img src="${data.qrDataUrl}" alt="QR Code">
+          <p style="margin-top:10px;font-size:14px;color:#7f8c8d;">${data.url}</p>
+        `;
+      } catch (err) {
+        document.getElementById('qrDisplay').innerHTML = '<p>Kan QR code niet laden</p>';
+      }
+    }
+
+    // Confirm dialog
+    function showConfirm(message, onConfirm) {
+      document.getElementById('confirmMessage').textContent = message;
+      const btn = document.getElementById('confirmBtn');
+      btn.onclick = () => { closeConfirm(); onConfirm(); };
+      document.getElementById('confirmModal').classList.add('active');
+    }
+
+    function closeConfirm() {
+      document.getElementById('confirmModal').classList.remove('active');
+    }
+
+    // Toast
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    // Helpers
+    function formatPrice(cents) {
+      return (cents / 100).toFixed(2).replace('.', ',');
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text || '';
+      return div.innerHTML;
+    }
+
+    // Auto-login if token exists
+    if (token) {
+      apiFetch('/api/admin/settings').then(data => {
+        if (data) {
+          document.getElementById('loginOverlay').classList.add('hidden');
+          document.getElementById('app').style.display = 'flex';
+          loadAll();
+        }
+      });
+    }
+  </script>
+</body>
+</html>

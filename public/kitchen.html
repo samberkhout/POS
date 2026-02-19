@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Keuken - POS</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: white;
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    #connection-warning {
+      display: none;
+      position: fixed; top: 0; left: 0; right: 0;
+      background: #e74c3c; color: white; text-align: center;
+      padding: 10px; font-size: 18px; font-weight: bold; z-index: 1000;
+    }
+
+    /* Audio prompt overlay */
+    #audio-prompt {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.9);
+      z-index: 2000; display: flex; align-items: center; justify-content: center;
+    }
+    #audio-prompt button {
+      padding: 30px 60px; font-size: 28px; font-weight: bold;
+      background: #27ae60; color: white; border: none; border-radius: 16px;
+      cursor: pointer;
+    }
+    #audio-prompt.hidden { display: none; }
+
+    .header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 20px; background: #16213e;
+    }
+    .header h1 { font-size: 24px; }
+    .header .clock { font-size: 20px; opacity: 0.7; }
+    .header .order-count {
+      background: #3498db; padding: 6px 16px; border-radius: 20px;
+      font-size: 16px; font-weight: 600;
+    }
+
+    .orders-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px; padding: 16px;
+      overflow-y: auto; height: calc(100vh - 64px);
+      align-content: start;
+    }
+
+    .order-card {
+      background: #16213e; border-radius: 16px;
+      overflow: hidden; animation: slideIn 0.3s ease-out;
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .order-card-header {
+      padding: 16px 20px; display: flex;
+      justify-content: space-between; align-items: center;
+    }
+    .order-card-header.cashier { background: #2980b9; }
+    .order-card-header.qr { background: #8e44ad; }
+
+    .order-number { font-size: 32px; font-weight: 800; }
+    .order-meta {
+      text-align: right; font-size: 14px; opacity: 0.9;
+    }
+    .order-origin {
+      display: inline-block; padding: 3px 10px;
+      border-radius: 10px; font-size: 12px; font-weight: 700;
+      background: rgba(255,255,255,0.2); margin-top: 4px;
+    }
+
+    .order-card-body { padding: 16px 20px; }
+    .order-customer {
+      font-size: 16px; font-weight: 600; margin-bottom: 10px;
+      opacity: 0.8;
+    }
+    .order-item {
+      font-size: 20px; padding: 6px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .order-item:last-child { border-bottom: none; }
+    .order-item-qty {
+      font-weight: 700; display: inline-block; min-width: 36px;
+    }
+
+    .order-card-footer { padding: 12px 20px; }
+    .klaar-btn {
+      width: 100%; padding: 18px; background: #27ae60;
+      color: white; border: none; border-radius: 12px;
+      font-size: 22px; font-weight: 800; cursor: pointer;
+      transition: transform 0.1s;
+    }
+    .klaar-btn:active { transform: scale(0.97); background: #219a52; }
+
+    .time-ago {
+      font-size: 14px; opacity: 0.5; text-align: center;
+      padding: 8px;
+    }
+
+    .empty-state {
+      position: absolute; inset: 0; display: flex;
+      flex-direction: column; align-items: center; justify-content: center;
+      opacity: 0.3; font-size: 24px; gap: 10px;
+      pointer-events: none;
+    }
+    .empty-state .big { font-size: 60px; }
+  </style>
+</head>
+<body>
+  <div id="connection-warning">Verbinding verloren — opnieuw verbinden...</div>
+
+  <div id="audio-prompt">
+    <button onclick="enableAudio()">Klik om te starten</button>
+  </div>
+
+  <div class="header">
+    <h1>Keuken</h1>
+    <span class="order-count" id="orderCount">0 bestellingen</span>
+    <span class="clock" id="clock"></span>
+  </div>
+
+  <div class="orders-container" id="ordersContainer">
+    <div class="empty-state" id="emptyState">
+      <span class="big">&#x1f373;</span>
+      <span>Wachten op bestellingen...</span>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    let orders = [];
+    let audioContext = null;
+
+    // Audio
+    function enableAudio() {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      document.getElementById('audio-prompt').classList.add('hidden');
+    }
+
+    function playChime() {
+      if (!audioContext) return;
+      const osc = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      osc.connect(gain);
+      gain.connect(audioContext.destination);
+      osc.frequency.setValueAtTime(880, audioContext.currentTime);
+      osc.frequency.setValueAtTime(1100, audioContext.currentTime + 0.15);
+      osc.frequency.setValueAtTime(880, audioContext.currentTime + 0.3);
+      gain.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+      osc.start();
+      osc.stop(audioContext.currentTime + 0.5);
+    }
+
+    // Socket.io
+    const socket = io();
+    socket.emit('join', { role: 'kitchen' });
+
+    socket.on('connect', () => {
+      document.getElementById('connection-warning').style.display = 'none';
+      loadActiveOrders();
+    });
+
+    socket.on('disconnect', () => {
+      document.getElementById('connection-warning').style.display = 'block';
+    });
+
+    socket.on('new-order', (order) => {
+      // Check if order already exists (prevent duplicates)
+      if (!orders.find(o => o.id === order.id)) {
+        orders.push(order);
+        renderOrders();
+        playChime();
+      }
+    });
+
+    socket.on('order-status-changed', (data) => {
+      const order = orders.find(o => o.id === data.id);
+      if (order) {
+        order.status = data.status;
+        if (data.status === 'klaar' || data.status === 'afgehaald') {
+          orders = orders.filter(o => o.id !== data.id);
+        }
+        renderOrders();
+      }
+    });
+
+    socket.on('products-updated', () => {
+      // No action needed for kitchen on product updates
+    });
+
+    // Load existing active orders
+    async function loadActiveOrders() {
+      try {
+        const res = await fetch('/api/orders/active');
+        orders = await res.json();
+        renderOrders();
+      } catch (err) {
+        console.error('Fout bij laden bestellingen:', err);
+      }
+    }
+
+    function renderOrders() {
+      const container = document.getElementById('ordersContainer');
+      const emptyState = document.getElementById('emptyState');
+
+      if (orders.length === 0) {
+        container.innerHTML = '';
+        container.appendChild(emptyState);
+        emptyState.style.display = 'flex';
+      } else {
+        emptyState.style.display = 'none';
+        container.innerHTML = orders.map(order => {
+          const items = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
+          const isQr = order.origin === 'qr';
+          const headerClass = isQr ? 'qr' : 'cashier';
+          const originLabel = isQr ? 'QR BESTELLING' : 'KASSA';
+
+          return `
+            <div class="order-card" id="order-${order.id}">
+              <div class="order-card-header ${headerClass}">
+                <span class="order-number">#${order.order_number}</span>
+                <div class="order-meta">
+                  <div class="order-origin">${originLabel}</div>
+                  <div class="time-ago" data-time="${order.created_at}"></div>
+                </div>
+              </div>
+              <div class="order-card-body">
+                ${order.customer_name ? `<div class="order-customer">${escapeHtml(order.customer_name)}</div>` : ''}
+                ${items.map(item => `
+                  <div class="order-item">
+                    <span class="order-item-qty">${item.quantity}x</span>
+                    ${escapeHtml(item.name)}
+                  </div>
+                `).join('')}
+              </div>
+              <div class="order-card-footer">
+                <button class="klaar-btn" onclick="markDone(${order.id})">KLAAR</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      document.getElementById('orderCount').textContent = `${orders.length} bestelling${orders.length !== 1 ? 'en' : ''}`;
+      updateTimeAgos();
+    }
+
+    function markDone(orderId) {
+      socket.emit('update-order-status', { order_id: orderId, status: 'klaar' });
+      orders = orders.filter(o => o.id !== orderId);
+      renderOrders();
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Time ago update
+    function updateTimeAgos() {
+      document.querySelectorAll('.time-ago[data-time]').forEach(el => {
+        const time = new Date(el.dataset.time);
+        const diff = Math.floor((Date.now() - time.getTime()) / 1000);
+        if (diff < 60) el.textContent = 'Zojuist';
+        else if (diff < 3600) el.textContent = `${Math.floor(diff / 60)} min geleden`;
+        else el.textContent = `${Math.floor(diff / 3600)} uur geleden`;
+      });
+    }
+
+    // Clock
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('clock').textContent = now.toLocaleTimeString('nl-NL', {
+        hour: '2-digit', minute: '2-digit',
+      });
+    }
+
+    // Update timers
+    setInterval(updateTimeAgos, 30000);
+    setInterval(updateClock, 1000);
+    updateClock();
+    loadActiveOrders();
+  </script>
+</body>
+</html>
