@@ -94,6 +94,25 @@ function printReceipt(order, shopName) {
       const right = `EUR ${formatPrice(lineTotal)}`;
       const padding = Math.max(1, 32 - left.length - right.length);
       buffers.push(textBuf(left + ' '.repeat(padding) + right));
+      // Print extensions
+      if (item.extensions) {
+        for (const ext of item.extensions) {
+          for (const choice of (ext.items || [])) {
+            const extLeft = `  + ${choice.name}`;
+            if (ext.type === 'item' && choice.price) {
+              const extRight = `+${formatPrice(choice.price)}`;
+              const extPad = Math.max(1, 32 - extLeft.length - extRight.length);
+              buffers.push(textBuf(extLeft + ' '.repeat(extPad) + extRight));
+            } else {
+              buffers.push(textBuf(extLeft));
+            }
+          }
+        }
+      }
+      // Print note
+      if (item.note) {
+        buffers.push(textBuf(`  "${item.note}"`));
+      }
     }
 
     buffers.push(
@@ -155,6 +174,22 @@ function printKitchenTicket(order, shopName) {
 
     for (const item of items) {
       buffers.push(textBuf(`  ${item.quantity}x ${item.name}`));
+      // Print extensions
+      if (item.extensions) {
+        for (const ext of item.extensions) {
+          for (const choice of (ext.items || [])) {
+            buffers.push(COMMANDS.NORMAL_SIZE);
+            buffers.push(textBuf(`    + ${choice.name}`));
+            buffers.push(COMMANDS.DOUBLE_HEIGHT);
+          }
+        }
+      }
+      // Print note
+      if (item.note) {
+        buffers.push(COMMANDS.NORMAL_SIZE);
+        buffers.push(textBuf(`    "${item.note}"`));
+        buffers.push(COMMANDS.DOUBLE_HEIGHT);
+      }
     }
 
     buffers.push(

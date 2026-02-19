@@ -210,6 +210,9 @@
         <option value="1">Ja</option>
         <option value="0">Nee</option>
       </select>
+      <label>Prijs bij 2 stuks (EUR, optioneel)</label>
+      <input type="number" id="productPriceQty2" step="0.01" min="0" placeholder="Leeg = geen korting">
+      <div id="productOptionGroupLinks" style="margin-top:12px;"></div>
       <div class="modal-actions">
         <button class="btn-secondary" onclick="closeProductModal()">Annuleren</button>
         <button class="btn-primary" onclick="saveProduct()">Opslaan</button>
@@ -245,12 +248,52 @@
     </div>
   </div>
 
+  <!-- Option Group modal -->
+  <div class="modal-overlay" id="optionGroupModal">
+    <div class="modal-box">
+      <h2 id="optionGroupModalTitle">Keuzeset toevoegen</h2>
+      <input type="hidden" id="optionGroupId">
+      <label>Naam</label>
+      <input type="text" id="optionGroupName" placeholder="Bijv. Saus, Extra's">
+      <label>Type</label>
+      <select id="optionGroupType">
+        <option value="note">Notitie bij gerecht (geen extra prijs)</option>
+        <option value="item">Apart artikel (met eigen prijs)</option>
+      </select>
+      <label>Max keuzes (0 = onbeperkt)</label>
+      <input type="number" id="optionGroupMaxChoices" value="1" min="0">
+      <label>Volgorde</label>
+      <input type="number" id="optionGroupSortOrder" value="0" min="0">
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeOptionGroupModal()">Annuleren</button>
+        <button class="btn-primary" onclick="saveOptionGroup()">Opslaan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add item to option group modal -->
+  <div class="modal-overlay" id="addOptionItemModal">
+    <div class="modal-box">
+      <h2>Artikel toevoegen aan keuzeset</h2>
+      <input type="hidden" id="addOptionItemGroupId">
+      <label>Artikel</label>
+      <select id="addOptionItemProduct"></select>
+      <label>Prijs overschrijven (EUR, optioneel)</label>
+      <input type="number" id="addOptionItemPrice" step="0.01" min="0" placeholder="Leeg = artikel prijs">
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeAddOptionItemModal()">Annuleren</button>
+        <button class="btn-primary" onclick="saveOptionItem()">Toevoegen</button>
+      </div>
+    </div>
+  </div>
+
   <!-- App -->
   <div class="app" id="app" style="display:none;">
     <div class="sidebar">
       <h2>Beheer</h2>
       <button class="nav-item active" onclick="showSection('products', this)">Producten</button>
       <button class="nav-item" onclick="showSection('categories', this)">Categorieen</button>
+      <button class="nav-item" onclick="showSection('optiongroups', this)">Uitbreidingen</button>
       <button class="nav-item" onclick="showSection('orders', this)">Bestellingen</button>
       <button class="nav-item" onclick="showSection('settings', this)">Instellingen</button>
     </div>
@@ -264,7 +307,7 @@
         </div>
         <table>
           <thead>
-            <tr><th>Naam</th><th>Prijs</th><th>Categorie</th><th>Status</th><th>Acties</th></tr>
+            <tr><th>Naam</th><th>Prijs</th><th>2 stuks</th><th>Categorie</th><th>Status</th><th>Acties</th></tr>
           </thead>
           <tbody id="productsTable"></tbody>
         </table>
@@ -282,6 +325,15 @@
           </thead>
           <tbody id="categoriesTable"></tbody>
         </table>
+      </div>
+
+      <!-- Option Groups (Uitbreidingen) -->
+      <div class="section" id="section-optiongroups">
+        <h2>Uitbreidingskeuzesets</h2>
+        <div class="toolbar">
+          <button class="btn-success" onclick="openOptionGroupModal()">+ Nieuwe keuzeset</button>
+        </div>
+        <div id="optionGroupsList"></div>
       </div>
 
       <!-- Orders -->
@@ -427,13 +479,17 @@
       if (btn) btn.classList.add('active');
 
       if (name === 'orders') loadOrders();
+      if (name === 'optiongroups') loadOptionGroups();
       if (name === 'settings') loadSettings();
     }
+
+    let allOptionGroups = [];
 
     // Load all data
     function loadAll() {
       loadCategories();
       loadProducts();
+      loadOptionGroups();
       loadQRCode();
     }
 
@@ -447,6 +503,7 @@
         <tr>
           <td>${escapeHtml(p.name)}</td>
           <td>EUR ${formatPrice(p.price)}</td>
+          <td>${p.price_qty2 ? 'EUR ' + formatPrice(p.price_qty2) : '-'}</td>
           <td>${escapeHtml(p.category_name)}</td>
           <td><span class="badge ${p.active ? 'badge-active' : 'badge-inactive'}">${p.active ? 'Actief' : 'Inactief'}</span></td>
           <td>
@@ -459,18 +516,48 @@
       `).join('');
     }
 
-    function openProductModal(product) {
+    async function openProductModal(product) {
       document.getElementById('productModalTitle').textContent = product ? 'Product bewerken' : 'Product toevoegen';
       document.getElementById('productId').value = product ? product.id : '';
       document.getElementById('productName').value = product ? product.name : '';
       document.getElementById('productPrice').value = product ? (product.price / 100).toFixed(2) : '';
       document.getElementById('productActive').value = product ? (product.active ? '1' : '0') : '1';
+      document.getElementById('productPriceQty2').value = product && product.price_qty2 ? (product.price_qty2 / 100).toFixed(2) : '';
 
       // Populate category dropdown
       const sel = document.getElementById('productCategory');
       sel.innerHTML = allCategories.map(c =>
         `<option value="${c.id}" ${product && product.category_id === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`
       ).join('');
+
+      // Load option group links for this product
+      const linksDiv = document.getElementById('productOptionGroupLinks');
+      if (product && product.id) {
+        const links = await apiFetch(`/api/admin/products/${product.id}/option-groups`);
+        const allGroups = await apiFetch('/api/admin/option-groups');
+        linksDiv.innerHTML = `
+          <label>Gekoppelde uitbreidingskeuzesets</label>
+          <div id="linkedGroups" style="margin-bottom:8px;">
+            ${(links || []).map(l => `
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;background:#ecf0f1;padding:6px 10px;border-radius:6px;">
+                <span style="flex:1;">${escapeHtml(l.group_name)} <small style="color:#7f8c8d;">(${l.type === 'note' ? 'notitie' : 'apart artikel'})</small></span>
+                <button class="btn-delete" style="padding:4px 8px;font-size:12px;" onclick="unlinkOptionGroup(${l.id})">Ontkoppel</button>
+              </div>
+            `).join('')}
+          </div>
+          <div style="display:flex;gap:8px;">
+            <select id="linkOptionGroupSelect" style="flex:1;padding:8px;border:2px solid #ddd;border-radius:6px;">
+              <option value="">-- Keuzeset toevoegen --</option>
+              ${(allGroups || []).filter(g => !(links || []).some(l => l.option_group_id === g.id)).map(g =>
+                `<option value="${g.id}">${escapeHtml(g.name)} (${g.type === 'note' ? 'notitie' : 'apart artikel'})</option>`
+              ).join('')}
+            </select>
+            <button class="btn-success" style="padding:8px 16px;" onclick="linkOptionGroup()">Koppel</button>
+          </div>
+        `;
+      } else {
+        linksDiv.innerHTML = '<p style="color:#7f8c8d;font-size:13px;margin-top:8px;">Sla het product eerst op, daarna kun je uitbreidingskeuzesets koppelen.</p>';
+      }
 
       document.getElementById('productModal').classList.add('active');
     }
@@ -485,12 +572,14 @@
 
     async function saveProduct() {
       const id = document.getElementById('productId').value;
+      const priceQty2Raw = document.getElementById('productPriceQty2').value;
       const body = {
         name: document.getElementById('productName').value,
         price: Math.round(parseFloat(document.getElementById('productPrice').value) * 100),
         category_id: parseInt(document.getElementById('productCategory').value),
         active: document.getElementById('productActive').value === '1',
         sort_order: 0,
+        price_qty2: priceQty2Raw ? Math.round(parseFloat(priceQty2Raw) * 100) : null,
       };
 
       if (!body.name || isNaN(body.price)) {
@@ -693,6 +782,153 @@
       } catch (err) {
         document.getElementById('qrDisplay').innerHTML = '<p>Kan QR code niet laden</p>';
       }
+    }
+
+    // Option Groups
+    async function loadOptionGroups() {
+      const data = await apiFetch('/api/admin/option-groups');
+      if (!data) return;
+      allOptionGroups = data;
+
+      const container = document.getElementById('optionGroupsList');
+      if (data.length === 0) {
+        container.innerHTML = '<p style="color:#7f8c8d;padding:20px;">Nog geen uitbreidingskeuzesets aangemaakt.</p>';
+        return;
+      }
+
+      container.innerHTML = data.map(g => `
+        <div style="background:white;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.1);margin-bottom:16px;overflow:hidden;">
+          <div style="display:flex;align-items:center;padding:16px;border-bottom:1px solid #ecf0f1;">
+            <div style="flex:1;">
+              <strong style="font-size:16px;">${escapeHtml(g.name)}</strong>
+              <span class="badge ${g.type === 'note' ? 'badge-active' : 'badge-inactive'}" style="margin-left:8px;">
+                ${g.type === 'note' ? 'Notitie' : 'Apart artikel'}
+              </span>
+              <span style="color:#7f8c8d;font-size:13px;margin-left:8px;">Max: ${g.max_choices === 0 ? 'onbeperkt' : g.max_choices}</span>
+            </div>
+            <div class="action-btns">
+              <button class="btn-edit" onclick='editOptionGroup(${JSON.stringify({id:g.id,name:g.name,type:g.type,max_choices:g.max_choices,sort_order:g.sort_order}).replace(/'/g,"&#39;")})'>Bewerk</button>
+              <button class="btn-success" style="padding:6px 12px;font-size:13px;" onclick="openAddOptionItem(${g.id})">+ Artikel</button>
+              <button class="btn-delete" onclick="deleteOptionGroup(${g.id}, '${escapeHtml(g.name)}')">Verwijder</button>
+            </div>
+          </div>
+          <div style="padding:8px 16px;">
+            ${g.items.length === 0 ? '<p style="color:#7f8c8d;font-size:13px;padding:8px 0;">Geen artikelen in deze keuzeset</p>' :
+              g.items.map(item => `
+                <div style="display:flex;align-items:center;padding:6px 0;border-bottom:1px solid #f5f5f5;">
+                  <span style="flex:1;">${escapeHtml(item.product_name)}
+                    <small style="color:#7f8c8d;">EUR ${formatPrice(item.price_override !== null ? item.price_override : item.product_price)}</small>
+                  </span>
+                  <button class="btn-delete" style="padding:3px 8px;font-size:11px;" onclick="removeOptionItem(${item.id})">Verwijder</button>
+                </div>
+              `).join('')
+            }
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function openOptionGroupModal(group) {
+      document.getElementById('optionGroupModalTitle').textContent = group ? 'Keuzeset bewerken' : 'Keuzeset toevoegen';
+      document.getElementById('optionGroupId').value = group ? group.id : '';
+      document.getElementById('optionGroupName').value = group ? group.name : '';
+      document.getElementById('optionGroupType').value = group ? group.type : 'note';
+      document.getElementById('optionGroupMaxChoices').value = group ? group.max_choices : 1;
+      document.getElementById('optionGroupSortOrder').value = group ? group.sort_order : 0;
+      document.getElementById('optionGroupModal').classList.add('active');
+    }
+
+    function closeOptionGroupModal() {
+      document.getElementById('optionGroupModal').classList.remove('active');
+    }
+
+    function editOptionGroup(g) { openOptionGroupModal(g); }
+
+    async function saveOptionGroup() {
+      const id = document.getElementById('optionGroupId').value;
+      const body = {
+        name: document.getElementById('optionGroupName').value,
+        type: document.getElementById('optionGroupType').value,
+        max_choices: parseInt(document.getElementById('optionGroupMaxChoices').value) || 1,
+        sort_order: parseInt(document.getElementById('optionGroupSortOrder').value) || 0,
+      };
+      if (!body.name) { showToast('Vul een naam in'); return; }
+
+      if (id) {
+        await apiFetch(`/api/admin/option-groups/${id}`, 'PUT', body);
+      } else {
+        await apiFetch('/api/admin/option-groups', 'POST', body);
+      }
+      closeOptionGroupModal();
+      loadOptionGroups();
+      showToast('Keuzeset opgeslagen');
+    }
+
+    function deleteOptionGroup(id, name) {
+      showConfirm(`Weet je zeker dat je keuzeset "${name}" wilt verwijderen?`, async () => {
+        await apiFetch(`/api/admin/option-groups/${id}`, 'DELETE');
+        loadOptionGroups();
+        showToast('Keuzeset verwijderd');
+      });
+    }
+
+    function openAddOptionItem(groupId) {
+      document.getElementById('addOptionItemGroupId').value = groupId;
+      document.getElementById('addOptionItemPrice').value = '';
+      // Populate product dropdown with all products
+      const sel = document.getElementById('addOptionItemProduct');
+      apiFetch('/api/admin/products').then(products => {
+        if (!products) return;
+        sel.innerHTML = products.map(p =>
+          `<option value="${p.id}">${escapeHtml(p.name)} (EUR ${formatPrice(p.price)})</option>`
+        ).join('');
+        document.getElementById('addOptionItemModal').classList.add('active');
+      });
+    }
+
+    function closeAddOptionItemModal() {
+      document.getElementById('addOptionItemModal').classList.remove('active');
+    }
+
+    async function saveOptionItem() {
+      const groupId = document.getElementById('addOptionItemGroupId').value;
+      const productId = document.getElementById('addOptionItemProduct').value;
+      const priceRaw = document.getElementById('addOptionItemPrice').value;
+      await apiFetch(`/api/admin/option-groups/${groupId}/items`, 'POST', {
+        product_id: parseInt(productId),
+        price_override: priceRaw ? Math.round(parseFloat(priceRaw) * 100) : null,
+      });
+      closeAddOptionItemModal();
+      loadOptionGroups();
+      showToast('Artikel toegevoegd');
+    }
+
+    async function removeOptionItem(itemId) {
+      await apiFetch(`/api/admin/option-group-items/${itemId}`, 'DELETE');
+      loadOptionGroups();
+      showToast('Artikel verwijderd');
+    }
+
+    // Product <-> Option Group linking
+    async function linkOptionGroup() {
+      const productId = document.getElementById('productId').value;
+      const groupId = document.getElementById('linkOptionGroupSelect').value;
+      if (!groupId) { showToast('Selecteer een keuzeset'); return; }
+      await apiFetch(`/api/admin/products/${productId}/option-groups`, 'POST', {
+        option_group_id: parseInt(groupId),
+      });
+      // Refresh the product modal
+      const product = await apiFetch(`/api/admin/products`).then(products => products.find(p => p.id == productId));
+      if (product) openProductModal(product);
+      showToast('Keuzeset gekoppeld');
+    }
+
+    async function unlinkOptionGroup(linkId) {
+      const productId = document.getElementById('productId').value;
+      await apiFetch(`/api/admin/product-option-groups/${linkId}`, 'DELETE');
+      const product = await apiFetch(`/api/admin/products`).then(products => products.find(p => p.id == productId));
+      if (product) openProductModal(product);
+      showToast('Keuzeset ontkoppeld');
     }
 
     // Confirm dialog

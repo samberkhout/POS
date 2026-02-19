@@ -81,6 +81,9 @@
     .product-btn .price {
       font-size: 14px; opacity: 0.9;
     }
+    .product-btn .price-qty2 {
+      font-size: 11px; opacity: 0.7;
+    }
 
     /* Right panel - Cart */
     .cart-panel {
@@ -95,14 +98,26 @@
       flex: 1; overflow-y: auto; padding: 10px;
     }
     .cart-item {
-      display: flex; align-items: center; padding: 12px;
+      padding: 12px;
       background: #34495e; border-radius: 8px; margin-bottom: 8px;
-      gap: 10px;
     }
     .cart-item.selected { outline: 2px solid #3498db; }
+    .cart-item-row {
+      display: flex; align-items: center; gap: 10px;
+    }
     .cart-item-info { flex: 1; }
     .cart-item-name { font-size: 16px; font-weight: 600; }
     .cart-item-price { font-size: 14px; opacity: 0.8; }
+    .cart-item-extensions {
+      margin-top: 4px; padding-left: 10px;
+    }
+    .cart-item-ext {
+      font-size: 12px; opacity: 0.7; padding: 1px 0;
+    }
+    .cart-item-note {
+      font-size: 12px; opacity: 0.7; font-style: italic; margin-top: 2px;
+      padding-left: 10px;
+    }
     .cart-item-qty {
       display: flex; align-items: center; gap: 8px;
     }
@@ -138,7 +153,7 @@
     .btn-remove { background: #e74c3c; color: white; }
     .btn-clear { background: #95a5a6; color: white; }
 
-    /* Payment modal */
+    /* Modals */
     .modal-overlay {
       display: none; position: fixed; inset: 0;
       background: rgba(0,0,0,0.7); z-index: 500;
@@ -176,6 +191,48 @@
       cursor: pointer;
     }
 
+    /* Extension modal */
+    .ext-modal {
+      background: white; border-radius: 20px; padding: 30px;
+      max-width: 500px; width: 90%; color: #2c3e50;
+      max-height: 85vh; overflow-y: auto;
+    }
+    .ext-modal h2 { font-size: 22px; margin-bottom: 6px; }
+    .ext-modal .ext-subtitle { font-size: 14px; color: #7f8c8d; margin-bottom: 16px; }
+    .ext-group { margin-bottom: 16px; }
+    .ext-group-title {
+      font-size: 16px; font-weight: 700; margin-bottom: 8px;
+      padding-bottom: 4px; border-bottom: 2px solid #ecf0f1;
+    }
+    .ext-group-type {
+      font-size: 12px; font-weight: 400; color: #7f8c8d;
+    }
+    .ext-option {
+      display: flex; align-items: center; padding: 10px;
+      border-radius: 8px; margin-bottom: 4px; cursor: pointer;
+      border: 2px solid #ecf0f1; transition: all 0.15s;
+    }
+    .ext-option:hover { border-color: #bdc3c7; }
+    .ext-option.selected { border-color: #3498db; background: #ebf5fb; }
+    .ext-option-name { flex: 1; font-size: 15px; font-weight: 500; }
+    .ext-option-price { font-size: 14px; color: #7f8c8d; }
+    .ext-note-section { margin-bottom: 16px; }
+    .ext-note-section label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 15px; }
+    .ext-note-input {
+      width: 100%; padding: 12px; border: 2px solid #ddd;
+      border-radius: 8px; font-size: 15px; resize: vertical;
+    }
+    .ext-actions {
+      display: flex; gap: 10px; margin-top: 16px;
+    }
+    .ext-actions button {
+      flex: 1; padding: 14px; border: none; border-radius: 10px;
+      font-size: 16px; font-weight: 700; cursor: pointer;
+    }
+    .ext-btn-cancel { background: #95a5a6; color: white; }
+    .ext-btn-add { background: #27ae60; color: white; }
+    .ext-btn-add:active, .ext-btn-cancel:active { transform: scale(0.97); }
+
     /* Empty state */
     .empty-cart {
       flex: 1; display: flex; align-items: center;
@@ -212,6 +269,11 @@
     </div>
   </div>
 
+  <!-- Extension / options modal -->
+  <div class="modal-overlay" id="extModal">
+    <div class="ext-modal" id="extModalContent"></div>
+  </div>
+
   <!-- Payment waiting modal -->
   <div class="modal-overlay" id="paymentModal">
     <div class="modal">
@@ -237,6 +299,7 @@
   <script>
     // State
     let categories = [];
+    let allProducts = {}; // id -> product (with option_groups)
     let cart = [];
     let selectedCartIndex = -1;
     let activeCategory = null;
@@ -273,6 +336,15 @@
         const data = await res.json();
         categories = data.categories;
         document.title = `Kassa - ${data.shopName}`;
+
+        // Build product lookup
+        allProducts = {};
+        for (const cat of categories) {
+          for (const p of cat.products) {
+            allProducts[p.id] = p;
+          }
+        }
+
         renderCategories();
         if (categories.length > 0) {
           selectCategory(activeCategory || categories[0].id);
@@ -298,22 +370,185 @@
 
       const grid = document.getElementById('productsGrid');
       grid.innerHTML = cat.products.map(p => `
-        <button class="product-btn" onclick="addToCart(${p.id}, '${p.name.replace(/'/g, "\\'")}', ${p.price})">
-          ${p.name}
+        <button class="product-btn" onclick="handleProductClick(${p.id})">
+          ${escapeHtml(p.name)}
           <span class="price">EUR ${formatPrice(p.price)}</span>
+          ${p.price_qty2 ? `<span class="price-qty2">2 st: EUR ${formatPrice(p.price_qty2)}</span>` : ''}
         </button>
       `).join('');
     }
 
-    // Cart management
-    function addToCart(id, name, price) {
-      const existing = cart.find(item => item.id === id);
+    // Handle product click - show extension modal if product has options, otherwise add directly
+    function handleProductClick(productId) {
+      const product = allProducts[productId];
+      if (!product) return;
+
+      const hasOptions = product.option_groups && product.option_groups.length > 0;
+
+      if (hasOptions) {
+        showExtensionModal(product);
+      } else {
+        addToCartDirect(product);
+      }
+    }
+
+    // Add product directly (no extensions)
+    function addToCartDirect(product) {
+      const existing = cart.find(item => item.id === product.id && !item.extensions?.length && !item.note);
       if (existing) {
         existing.quantity++;
       } else {
-        cart.push({ id, name, price, quantity: 1 });
+        cart.push({
+          id: product.id,
+          name: product.name,
+          price: product.price,
+          price_qty2: product.price_qty2 || null,
+          quantity: 1,
+          extensions: [],
+          note: '',
+        });
       }
       renderCart();
+    }
+
+    // Show extension/options modal
+    function showExtensionModal(product) {
+      const modal = document.getElementById('extModalContent');
+      let html = `<h2>${escapeHtml(product.name)}</h2>`;
+      html += `<div class="ext-subtitle">EUR ${formatPrice(product.price)}${product.price_qty2 ? ` &mdash; 2 stuks: EUR ${formatPrice(product.price_qty2)}` : ''}</div>`;
+
+      // Option groups
+      for (const group of product.option_groups) {
+        html += `<div class="ext-group" data-group-id="${group.id}">`;
+        html += `<div class="ext-group-title">${escapeHtml(group.name)} <span class="ext-group-type">(${group.type === 'note' ? 'notitie' : 'apart artikel'}${group.max_choices > 0 ? `, max ${group.max_choices}` : ''})</span></div>`;
+        for (const item of group.items) {
+          html += `<div class="ext-option" data-group-id="${group.id}" data-item-id="${item.id}" data-product-id="${item.product_id}" data-name="${escapeHtml(item.name)}" data-price="${item.price}" data-type="${group.type}" data-max="${group.max_choices}" onclick="toggleExtOption(this)">
+            <span class="ext-option-name">${escapeHtml(item.name)}</span>
+            <span class="ext-option-price">${group.type === 'item' ? '+EUR ' + formatPrice(item.price) : ''}</span>
+          </div>`;
+        }
+        html += `</div>`;
+      }
+
+      // Open note
+      html += `<div class="ext-note-section">
+        <label>Notitie (optioneel)</label>
+        <input type="text" class="ext-note-input" id="extNoteInput" placeholder="Bijv. zonder ui, extra krokant...">
+      </div>`;
+
+      html += `<div class="ext-actions">
+        <button class="ext-btn-cancel" onclick="closeExtModal()">Annuleren</button>
+        <button class="ext-btn-add" onclick="addWithExtensions(${product.id})">Toevoegen</button>
+      </div>`;
+
+      modal.innerHTML = html;
+      document.getElementById('extModal').classList.add('active');
+    }
+
+    function toggleExtOption(el) {
+      const groupId = el.dataset.groupId;
+      const maxChoices = parseInt(el.dataset.max) || 0;
+
+      if (el.classList.contains('selected')) {
+        el.classList.remove('selected');
+      } else {
+        // Check max choices
+        if (maxChoices > 0) {
+          const selected = document.querySelectorAll(`.ext-option.selected[data-group-id="${groupId}"]`);
+          if (selected.length >= maxChoices) {
+            // Deselect oldest selection
+            selected[0].classList.remove('selected');
+          }
+        }
+        el.classList.add('selected');
+      }
+    }
+
+    function closeExtModal() {
+      document.getElementById('extModal').classList.remove('active');
+    }
+
+    function addWithExtensions(productId) {
+      const product = allProducts[productId];
+      if (!product) return;
+
+      // Gather selected extensions
+      const extensions = [];
+      const selectedOptions = document.querySelectorAll('#extModalContent .ext-option.selected');
+      const groupMap = {};
+
+      for (const opt of selectedOptions) {
+        const gid = opt.dataset.groupId;
+        if (!groupMap[gid]) {
+          const group = product.option_groups.find(g => g.id == gid);
+          groupMap[gid] = {
+            option_group_id: parseInt(gid),
+            option_group_name: group ? group.name : '',
+            type: opt.dataset.type,
+            items: [],
+          };
+        }
+        groupMap[gid].items.push({
+          product_id: parseInt(opt.dataset.productId),
+          name: opt.dataset.name,
+          price: parseInt(opt.dataset.price),
+        });
+      }
+
+      for (const gid in groupMap) {
+        extensions.push(groupMap[gid]);
+      }
+
+      const note = document.getElementById('extNoteInput').value.trim();
+
+      // Each product+extensions combo is a unique cart item (no merging with different extensions)
+      cart.push({
+        id: product.id,
+        name: product.name,
+        price: product.price,
+        price_qty2: product.price_qty2 || null,
+        quantity: 1,
+        extensions,
+        note,
+      });
+
+      closeExtModal();
+      renderCart();
+    }
+
+    // Calculate item total (including extensions and price_qty2)
+    function calcItemTotal(item) {
+      let basePrice = item.price;
+      // Apply price_qty2 if quantity is 2 or more and a 2-pack price exists
+      if (item.price_qty2 && item.quantity >= 2) {
+        const packs = Math.floor(item.quantity / 2);
+        const singles = item.quantity % 2;
+        basePrice = 0; // we compute the total differently
+        let itemTotal = packs * item.price_qty2 + singles * item.price;
+        // Add extension prices
+        if (item.extensions) {
+          for (const ext of item.extensions) {
+            if (ext.type === 'item') {
+              for (const choice of (ext.items || [])) {
+                itemTotal += (choice.price || 0) * item.quantity;
+              }
+            }
+          }
+        }
+        return itemTotal;
+      }
+
+      let total = item.price * item.quantity;
+      if (item.extensions) {
+        for (const ext of item.extensions) {
+          if (ext.type === 'item') {
+            for (const choice of (ext.items || [])) {
+              total += (choice.price || 0) * item.quantity;
+            }
+          }
+        }
+      }
+      return total;
     }
 
     function renderCart() {
@@ -322,23 +557,42 @@
         container.innerHTML = '<div class="empty-cart">Tik op een product om toe te voegen</div>';
         selectedCartIndex = -1;
       } else {
-        container.innerHTML = cart.map((item, i) => `
-          <div class="cart-item ${i === selectedCartIndex ? 'selected' : ''}"
-               onclick="selectCartItem(${i})">
-            <div class="cart-item-info">
-              <div class="cart-item-name">${item.name}</div>
-              <div class="cart-item-price">EUR ${formatPrice(item.price * item.quantity)}</div>
+        container.innerHTML = cart.map((item, i) => {
+          const itemTotal = calcItemTotal(item);
+          let extHtml = '';
+          if (item.extensions && item.extensions.length > 0) {
+            extHtml = '<div class="cart-item-extensions">';
+            for (const ext of item.extensions) {
+              for (const choice of ext.items) {
+                extHtml += `<div class="cart-item-ext">+ ${escapeHtml(choice.name)}${ext.type === 'item' ? ' (+EUR ' + formatPrice(choice.price) + ')' : ''}</div>`;
+              }
+            }
+            extHtml += '</div>';
+          }
+          let noteHtml = item.note ? `<div class="cart-item-note">"${escapeHtml(item.note)}"</div>` : '';
+
+          return `
+            <div class="cart-item ${i === selectedCartIndex ? 'selected' : ''}"
+                 onclick="selectCartItem(${i})">
+              <div class="cart-item-row">
+                <div class="cart-item-info">
+                  <div class="cart-item-name">${escapeHtml(item.name)}</div>
+                  <div class="cart-item-price">EUR ${formatPrice(itemTotal)}</div>
+                </div>
+                <div class="cart-item-qty">
+                  <button class="qty-btn minus" onclick="event.stopPropagation(); changeQty(${i}, -1)">-</button>
+                  <span class="qty-val">${item.quantity}</span>
+                  <button class="qty-btn plus" onclick="event.stopPropagation(); changeQty(${i}, 1)">+</button>
+                </div>
+              </div>
+              ${extHtml}
+              ${noteHtml}
             </div>
-            <div class="cart-item-qty">
-              <button class="qty-btn minus" onclick="event.stopPropagation(); changeQty(${i}, -1)">-</button>
-              <span class="qty-val">${item.quantity}</span>
-              <button class="qty-btn plus" onclick="event.stopPropagation(); changeQty(${i}, 1)">+</button>
-            </div>
-          </div>
-        `).join('');
+          `;
+        }).join('');
       }
 
-      const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      const total = cart.reduce((sum, item) => sum + calcItemTotal(item), 0);
       document.getElementById('cartTotal').textContent = `EUR ${formatPrice(total)}`;
     }
 
@@ -370,6 +624,22 @@
       renderCart();
     }
 
+    // Build items for API (recalculate correct price per item)
+    function buildOrderItems() {
+      return cart.map(item => {
+        const orderItem = {
+          product_id: item.id,
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+        };
+        if (item.price_qty2) orderItem.price_qty2 = item.price_qty2;
+        if (item.extensions && item.extensions.length > 0) orderItem.extensions = item.extensions;
+        if (item.note) orderItem.note = item.note;
+        return orderItem;
+      });
+    }
+
     // Payment
     async function payCash() {
       if (cart.length === 0) return;
@@ -379,7 +649,7 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            items: cart.map(i => ({ product_id: i.id, name: i.name, price: i.price, quantity: i.quantity })),
+            items: buildOrderItems(),
             payment_method: 'cash',
           }),
         });
@@ -399,7 +669,7 @@
     async function payPin() {
       if (cart.length === 0) return;
 
-      const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      const total = cart.reduce((sum, item) => sum + calcItemTotal(item), 0);
       document.getElementById('paymentAmount').textContent = `EUR ${formatPrice(total)}`;
       document.getElementById('paymentModal').classList.add('active');
 
@@ -408,7 +678,7 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            items: cart.map(i => ({ product_id: i.id, name: i.name, price: i.price, quantity: i.quantity })),
+            items: buildOrderItems(),
           }),
         });
 
@@ -459,6 +729,12 @@
 
     function formatPrice(cents) {
       return (cents / 100).toFixed(2).replace('.', ',');
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text || '';
+      return div.innerHTML;
     }
 
     // Initial load
