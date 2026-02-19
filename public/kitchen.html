@@ -153,12 +153,7 @@
     <span class="clock" id="clock"></span>
   </div>
 
-  <div class="orders-container" id="ordersContainer">
-    <div class="empty-state" id="emptyState">
-      <span class="big">&#x1f373;</span>
-      <span>Wachten op bestellingen...</span>
-    </div>
-  </div>
+  <div class="orders-container" id="ordersContainer"></div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
@@ -209,13 +204,16 @@
     });
 
     socket.on('order-status-changed', (data) => {
-      const order = orders.find(o => o.id === data.id);
-      if (order) {
-        order.status = data.status;
-        if (data.status === 'klaar' || data.status === 'afgehaald') {
-          orders = orders.filter(o => o.id !== data.id);
+      if (data.status === 'klaar' || data.status === 'afgehaald') {
+        const had = orders.some(o => o.id === data.id);
+        orders = orders.filter(o => o.id !== data.id);
+        if (had) renderOrders();
+      } else {
+        const order = orders.find(o => o.id === data.id);
+        if (order && order.status !== data.status) {
+          order.status = data.status;
+          renderOrders();
         }
-        renderOrders();
       }
     });
 
@@ -236,14 +234,15 @@
 
     function renderOrders() {
       const container = document.getElementById('ordersContainer');
-      const emptyState = document.getElementById('emptyState');
 
       if (orders.length === 0) {
-        container.innerHTML = '';
-        container.appendChild(emptyState);
-        emptyState.style.display = 'flex';
+        container.innerHTML = `
+          <div class="empty-state" style="display:flex;">
+            <span class="big">&#x1f373;</span>
+            <span>Wachten op bestellingen...</span>
+          </div>
+        `;
       } else {
-        emptyState.style.display = 'none';
         container.innerHTML = orders.map(order => {
           const items = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
           const isQr = order.origin === 'qr';
@@ -273,7 +272,7 @@
             }
           }
 
-          // Buttons: if nieuw -> show BEREIDEN, if in_bereiding -> show KLAAR
+          // Buttons: if nieuw -> show BEREIDEN + KLAAR, if in_bereiding -> show only KLAAR
           let footerHtml = '';
           if (isPreparing) {
             footerHtml = `<button class="klaar-btn" onclick="markDone(${order.id})">KLAAR</button>`;
@@ -311,18 +310,18 @@
     }
 
     function markPreparing(orderId) {
-      socket.emit('update-order-status', { order_id: orderId, status: 'in_bereiding' });
       const order = orders.find(o => o.id === orderId);
       if (order) {
         order.status = 'in_bereiding';
         renderOrders();
       }
+      socket.emit('update-order-status', { order_id: orderId, status: 'in_bereiding' });
     }
 
     function markDone(orderId) {
-      socket.emit('update-order-status', { order_id: orderId, status: 'klaar' });
       orders = orders.filter(o => o.id !== orderId);
       renderOrders();
+      socket.emit('update-order-status', { order_id: orderId, status: 'klaar' });
     }
 
     function escapeHtml(text) {
