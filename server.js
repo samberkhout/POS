@@ -118,6 +118,35 @@ function adminAuth(req, res, next) {
 }
 
 // ============================================================
+// Helper: calculate order total including extensions
+// ============================================================
+
+function calculateOrderTotal(items) {
+  let total = 0;
+  for (const item of items) {
+    // Apply price_qty2 if quantity >= 2 and price_qty2 exists
+    if (item.price_qty2 && item.quantity >= 2) {
+      const packs = Math.floor(item.quantity / 2);
+      const singles = item.quantity % 2;
+      total += packs * item.price_qty2 + singles * item.price;
+    } else {
+      total += item.price * item.quantity;
+    }
+    // Add extension prices (type=item extensions add their price)
+    if (item.extensions) {
+      for (const ext of item.extensions) {
+        if (ext.type === 'item') {
+          for (const choice of (ext.items || [])) {
+            total += (choice.price || 0) * item.quantity;
+          }
+        }
+      }
+    }
+  }
+  return total;
+}
+
+// ============================================================
 // PUBLIC API Routes (accessible via Cloudflare Tunnel)
 // ============================================================
 
@@ -135,7 +164,13 @@ app.get('/api/menu', (req, res) => {
         name: cat.name,
         products: products
           .filter(p => p.category_id === cat.id)
-          .map(p => ({ id: p.id, name: p.name, price: p.price })),
+          .map(p => ({
+            id: p.id,
+            name: p.name,
+            price: p.price,
+            price_qty2: p.price_qty2 || null,
+            option_groups: db.getOptionGroupsForProduct(p.id),
+          })),
       }));
 
     res.json({ shopName, categories: grouped });
@@ -152,7 +187,7 @@ app.post('/api/orders/create-qr', async (req, res) => {
       return res.status(400).json({ error: 'Geen items in bestelling' });
     }
 
-    const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const total = calculateOrderTotal(items);
     const order = db.createOrder({
       customer_name: customer_name || '',
       items,
@@ -298,7 +333,7 @@ app.get('/api/admin/products', localOnly, adminAuth, (req, res) => {
 
 app.post('/api/admin/products', localOnly, adminAuth, (req, res) => {
   try {
-    const { name, price, category_id, active, sort_order } = req.body;
+    const { name, price, category_id, active, sort_order, price_qty2 } = req.body;
     if (!name || price === undefined || !category_id) {
       return res.status(400).json({ error: 'Naam, prijs en categorie zijn verplicht' });
     }
@@ -308,6 +343,7 @@ app.post('/api/admin/products', localOnly, adminAuth, (req, res) => {
       category_id: parseInt(category_id),
       active: active !== undefined ? (active ? 1 : 0) : 1,
       sort_order: parseInt(sort_order) || 0,
+      price_qty2: price_qty2 ? parseInt(price_qty2) : null,
     });
     io.emit('products-updated');
     res.json(product);
@@ -319,13 +355,14 @@ app.post('/api/admin/products', localOnly, adminAuth, (req, res) => {
 app.put('/api/admin/products/:id', localOnly, adminAuth, (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const { name, price, category_id, active, sort_order } = req.body;
+    const { name, price, category_id, active, sort_order, price_qty2 } = req.body;
     db.updateProduct(id, {
       name,
       price: parseInt(price),
       category_id: parseInt(category_id),
       active: active ? 1 : 0,
       sort_order: parseInt(sort_order) || 0,
+      price_qty2: price_qty2 ? parseInt(price_qty2) : null,
     });
     io.emit('products-updated');
     res.json({ success: true });
@@ -397,7 +434,7 @@ app.post('/api/orders', localOnly, (req, res) => {
       return res.status(400).json({ error: 'Geen items in bestelling' });
     }
 
-    const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const total = calculateOrderTotal(items);
     const order = db.createOrder({
       customer_name: customer_name || '',
       items,
@@ -471,7 +508,7 @@ app.post('/api/payment/pin', localOnly, async (req, res) => {
       return res.status(400).json({ error: 'Geen items in bestelling' });
     }
 
-    const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const total = calculateOrderTotal(items);
 
     // Create order first with pending status
     const order = db.createOrder({
@@ -518,6 +555,131 @@ app.post('/api/payment/pin/cancel', localOnly, async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// --- Option Groups (Uitbreidingskeuzesets) ---
+
+app.get('/api/admin/option-groups', localOnly, adminAuth, (req, res) => {
+  try {
+    const groups = db.getAllOptionGroups();
+    // Include items for each group
+    const result = groups.map(g => ({
+      ...g,
+      items: db.getOptionGroupItems(g.id),
+    }));
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/option-groups', localOnly, adminAuth, (req, res) => {
+  try {
+    const { name, type, max_choices, sort_order } = req.body;
+    if (!name) return res.status(400).json({ error: 'Naam is verplicht' });
+    const group = db.createOptionGroup({
+      name,
+      type: type || 'note',
+      max_choices: parseInt(max_choices) || 1,
+      sort_order: parseInt(sort_order) || 0,
+    });
+    io.emit('products-updated');
+    res.json(group);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/admin/option-groups/:id', localOnly, adminAuth, (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { name, type, max_choices, sort_order } = req.body;
+    db.updateOptionGroup(id, {
+      name,
+      type: type || 'note',
+      max_choices: parseInt(max_choices) || 1,
+      sort_order: parseInt(sort_order) || 0,
+    });
+    io.emit('products-updated');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/option-groups/:id', localOnly, adminAuth, (req, res) => {
+  try {
+    db.deleteOptionGroup(parseInt(req.params.id));
+    io.emit('products-updated');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Option group items (add/remove products to/from a group)
+app.post('/api/admin/option-groups/:id/items', localOnly, adminAuth, (req, res) => {
+  try {
+    const groupId = parseInt(req.params.id);
+    const { product_id, price_override, sort_order } = req.body;
+    if (!product_id) return res.status(400).json({ error: 'Product is verplicht' });
+    const item = db.addOptionGroupItem({
+      option_group_id: groupId,
+      product_id: parseInt(product_id),
+      price_override: price_override !== undefined && price_override !== null && price_override !== '' ? parseInt(price_override) : null,
+      sort_order: parseInt(sort_order) || 0,
+    });
+    io.emit('products-updated');
+    res.json(item);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/option-group-items/:id', localOnly, adminAuth, (req, res) => {
+  try {
+    db.removeOptionGroupItem(parseInt(req.params.id));
+    io.emit('products-updated');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Product <-> Option Group links
+app.get('/api/admin/products/:id/option-groups', localOnly, adminAuth, (req, res) => {
+  try {
+    res.json(db.getProductOptionGroups(parseInt(req.params.id)));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/products/:id/option-groups', localOnly, adminAuth, (req, res) => {
+  try {
+    const productId = parseInt(req.params.id);
+    const { option_group_id, sort_order } = req.body;
+    if (!option_group_id) return res.status(400).json({ error: 'Keuze groep is verplicht' });
+    const link = db.addProductOptionGroup({
+      product_id: productId,
+      option_group_id: parseInt(option_group_id),
+      sort_order: parseInt(sort_order) || 0,
+    });
+    io.emit('products-updated');
+    res.json(link);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/product-option-groups/:id', localOnly, adminAuth, (req, res) => {
+  try {
+    db.removeProductOptionGroup(parseInt(req.params.id));
+    io.emit('products-updated');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

@@ -69,6 +69,7 @@
     }
     .order-card-header.cashier { background: #2980b9; }
     .order-card-header.qr { background: #8e44ad; }
+    .order-card-header.preparing { background: #e67e22; }
 
     .order-number { font-size: 32px; font-weight: 800; }
     .order-meta {
@@ -78,6 +79,11 @@
       display: inline-block; padding: 3px 10px;
       border-radius: 10px; font-size: 12px; font-weight: 700;
       background: rgba(255,255,255,0.2); margin-top: 4px;
+    }
+    .order-status-badge {
+      display: inline-block; padding: 3px 10px;
+      border-radius: 10px; font-size: 12px; font-weight: 700;
+      background: rgba(255,255,255,0.3); margin-top: 4px;
     }
 
     .order-card-body { padding: 16px 20px; }
@@ -93,12 +99,29 @@
     .order-item-qty {
       font-weight: 700; display: inline-block; min-width: 36px;
     }
+    .order-item-ext {
+      font-size: 14px; opacity: 0.6; padding-left: 40px;
+    }
+    .order-item-note {
+      font-size: 14px; opacity: 0.6; font-style: italic;
+      padding-left: 40px;
+    }
 
-    .order-card-footer { padding: 12px 20px; }
-    .klaar-btn {
-      width: 100%; padding: 18px; background: #27ae60;
+    .order-card-footer {
+      padding: 12px 20px;
+      display: flex; gap: 8px;
+    }
+    .bereiden-btn {
+      flex: 1; padding: 18px; background: #e67e22;
       color: white; border: none; border-radius: 12px;
-      font-size: 22px; font-weight: 800; cursor: pointer;
+      font-size: 20px; font-weight: 800; cursor: pointer;
+      transition: transform 0.1s;
+    }
+    .bereiden-btn:active { transform: scale(0.97); background: #d35400; }
+    .klaar-btn {
+      flex: 1; padding: 18px; background: #27ae60;
+      color: white; border: none; border-radius: 12px;
+      font-size: 20px; font-weight: 800; cursor: pointer;
       transition: transform 0.1s;
     }
     .klaar-btn:active { transform: scale(0.97); background: #219a52; }
@@ -224,8 +247,42 @@
         container.innerHTML = orders.map(order => {
           const items = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
           const isQr = order.origin === 'qr';
-          const headerClass = isQr ? 'qr' : 'cashier';
+          const isPreparing = order.status === 'in_bereiding';
+          const headerClass = isPreparing ? 'preparing' : (isQr ? 'qr' : 'cashier');
           const originLabel = isQr ? 'QR BESTELLING' : 'KASSA';
+          const statusLabel = isPreparing ? 'AAN HET BEREIDEN' : 'NIEUW';
+
+          // Build items HTML with extensions and notes
+          let itemsHtml = '';
+          for (const item of items) {
+            itemsHtml += `<div class="order-item">
+              <span class="order-item-qty">${item.quantity}x</span>
+              ${escapeHtml(item.name)}
+            </div>`;
+            // Show extensions
+            if (item.extensions) {
+              for (const ext of item.extensions) {
+                for (const choice of (ext.items || [])) {
+                  itemsHtml += `<div class="order-item-ext">+ ${escapeHtml(choice.name)}</div>`;
+                }
+              }
+            }
+            // Show note
+            if (item.note) {
+              itemsHtml += `<div class="order-item-note">"${escapeHtml(item.note)}"</div>`;
+            }
+          }
+
+          // Buttons: if nieuw -> show BEREIDEN, if in_bereiding -> show KLAAR
+          let footerHtml = '';
+          if (isPreparing) {
+            footerHtml = `<button class="klaar-btn" onclick="markDone(${order.id})">KLAAR</button>`;
+          } else {
+            footerHtml = `
+              <button class="bereiden-btn" onclick="markPreparing(${order.id})">BEREIDEN</button>
+              <button class="klaar-btn" onclick="markDone(${order.id})">KLAAR</button>
+            `;
+          }
 
           return `
             <div class="order-card" id="order-${order.id}">
@@ -233,20 +290,16 @@
                 <span class="order-number">#${order.order_number}</span>
                 <div class="order-meta">
                   <div class="order-origin">${originLabel}</div>
+                  <div class="order-status-badge">${statusLabel}</div>
                   <div class="time-ago" data-time="${order.created_at}"></div>
                 </div>
               </div>
               <div class="order-card-body">
                 ${order.customer_name ? `<div class="order-customer">${escapeHtml(order.customer_name)}</div>` : ''}
-                ${items.map(item => `
-                  <div class="order-item">
-                    <span class="order-item-qty">${item.quantity}x</span>
-                    ${escapeHtml(item.name)}
-                  </div>
-                `).join('')}
+                ${itemsHtml}
               </div>
               <div class="order-card-footer">
-                <button class="klaar-btn" onclick="markDone(${order.id})">KLAAR</button>
+                ${footerHtml}
               </div>
             </div>
           `;
@@ -255,6 +308,15 @@
 
       document.getElementById('orderCount').textContent = `${orders.length} bestelling${orders.length !== 1 ? 'en' : ''}`;
       updateTimeAgos();
+    }
+
+    function markPreparing(orderId) {
+      socket.emit('update-order-status', { order_id: orderId, status: 'in_bereiding' });
+      const order = orders.find(o => o.id === orderId);
+      if (order) {
+        order.status = 'in_bereiding';
+        renderOrders();
+      }
     }
 
     function markDone(orderId) {

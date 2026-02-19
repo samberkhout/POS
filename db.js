@@ -34,6 +34,7 @@ function initializeDatabase() {
       category_id INTEGER NOT NULL,
       active INTEGER DEFAULT 1,
       sort_order INTEGER DEFAULT 0,
+      price_qty2 INTEGER DEFAULT NULL,
       FOREIGN KEY (category_id) REFERENCES categories(id)
     );
 
@@ -54,7 +55,41 @@ function initializeDatabase() {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS option_groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'note',
+      max_choices INTEGER DEFAULT 1,
+      sort_order INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS option_group_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      option_group_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      price_override INTEGER DEFAULT NULL,
+      sort_order INTEGER DEFAULT 0,
+      FOREIGN KEY (option_group_id) REFERENCES option_groups(id),
+      FOREIGN KEY (product_id) REFERENCES products(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS product_option_groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL,
+      option_group_id INTEGER NOT NULL,
+      sort_order INTEGER DEFAULT 0,
+      FOREIGN KEY (product_id) REFERENCES products(id),
+      FOREIGN KEY (option_group_id) REFERENCES option_groups(id)
+    );
   `);
+
+  // Add price_qty2 column if missing (for existing databases)
+  try {
+    db.exec('ALTER TABLE products ADD COLUMN price_qty2 INTEGER DEFAULT NULL');
+  } catch (e) {
+    // Column already exists
+  }
 
   // Now prepare all statements
   s.getAllCategories = db.prepare('SELECT * FROM categories ORDER BY sort_order ASC, id ASC');
@@ -74,8 +109,8 @@ function initializeDatabase() {
     ORDER BY c.sort_order ASC, p.sort_order ASC, p.id ASC
   `);
   s.getProductById = db.prepare('SELECT * FROM products WHERE id = ?');
-  s.createProduct = db.prepare('INSERT INTO products (name, price, category_id, active, sort_order) VALUES (?, ?, ?, ?, ?)');
-  s.updateProduct = db.prepare('UPDATE products SET name = ?, price = ?, category_id = ?, active = ?, sort_order = ? WHERE id = ?');
+  s.createProduct = db.prepare('INSERT INTO products (name, price, category_id, active, sort_order, price_qty2) VALUES (?, ?, ?, ?, ?, ?)');
+  s.updateProduct = db.prepare('UPDATE products SET name = ?, price = ?, category_id = ?, active = ?, sort_order = ?, price_qty2 = ? WHERE id = ?');
   s.deleteProduct = db.prepare('DELETE FROM products WHERE id = ?');
 
   s.getNextOrderNumber = db.prepare("SELECT MAX(order_number) as max_num FROM orders WHERE date(created_at) = date('now', 'localtime')");
@@ -92,6 +127,38 @@ function initializeDatabase() {
     COALESCE(SUM(CASE WHEN payment_method = 'online' THEN total ELSE 0 END), 0) as total_online
     FROM orders WHERE date(created_at) = ?
   `);
+
+  // Option groups (uitbreidingskeuzesets)
+  s.getAllOptionGroups = db.prepare('SELECT * FROM option_groups ORDER BY sort_order ASC, id ASC');
+  s.getOptionGroupById = db.prepare('SELECT * FROM option_groups WHERE id = ?');
+  s.createOptionGroup = db.prepare('INSERT INTO option_groups (name, type, max_choices, sort_order) VALUES (?, ?, ?, ?)');
+  s.updateOptionGroup = db.prepare('UPDATE option_groups SET name = ?, type = ?, max_choices = ?, sort_order = ? WHERE id = ?');
+  s.deleteOptionGroup = db.prepare('DELETE FROM option_groups WHERE id = ?');
+
+  // Option group items
+  s.getOptionGroupItems = db.prepare(`
+    SELECT ogi.*, p.name as product_name, p.price as product_price
+    FROM option_group_items ogi
+    JOIN products p ON ogi.product_id = p.id
+    WHERE ogi.option_group_id = ?
+    ORDER BY ogi.sort_order ASC, ogi.id ASC
+  `);
+  s.addOptionGroupItem = db.prepare('INSERT INTO option_group_items (option_group_id, product_id, price_override, sort_order) VALUES (?, ?, ?, ?)');
+  s.removeOptionGroupItem = db.prepare('DELETE FROM option_group_items WHERE id = ?');
+  s.clearOptionGroupItems = db.prepare('DELETE FROM option_group_items WHERE option_group_id = ?');
+
+  // Product <-> option group links
+  s.getProductOptionGroups = db.prepare(`
+    SELECT pog.*, og.name as group_name, og.type, og.max_choices
+    FROM product_option_groups pog
+    JOIN option_groups og ON pog.option_group_id = og.id
+    WHERE pog.product_id = ?
+    ORDER BY pog.sort_order ASC, pog.id ASC
+  `);
+  s.addProductOptionGroup = db.prepare('INSERT INTO product_option_groups (product_id, option_group_id, sort_order) VALUES (?, ?, ?)');
+  s.removeProductOptionGroup = db.prepare('DELETE FROM product_option_groups WHERE id = ?');
+  s.getProductOptionGroupLink = db.prepare('SELECT * FROM product_option_groups WHERE product_id = ? AND option_group_id = ?');
+  s.clearProductOptionGroups = db.prepare('DELETE FROM product_option_groups WHERE product_id = ?');
 
   s.getSetting = db.prepare('SELECT value FROM settings WHERE key = ?');
   s.setSetting = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
@@ -142,13 +209,13 @@ function getAllProducts() { return s.getAllProducts.all(); }
 function getAllProductsAdmin() { return s.getAllProductsAdmin.all(); }
 function getProductById(id) { return s.getProductById.get(id); }
 
-function createProduct({ name, price, category_id, active = 1, sort_order = 0 }) {
-  const info = s.createProduct.run(name, price, category_id, active, sort_order);
-  return { id: info.lastInsertRowid, name, price, category_id, active, sort_order };
+function createProduct({ name, price, category_id, active = 1, sort_order = 0, price_qty2 = null }) {
+  const info = s.createProduct.run(name, price, category_id, active, sort_order, price_qty2);
+  return { id: info.lastInsertRowid, name, price, category_id, active, sort_order, price_qty2 };
 }
 
-function updateProduct(id, { name, price, category_id, active, sort_order }) {
-  s.updateProduct.run(name, price, category_id, active, sort_order, id);
+function updateProduct(id, { name, price, category_id, active, sort_order, price_qty2 = null }) {
+  s.updateProduct.run(name, price, category_id, active, sort_order, price_qty2, id);
 }
 
 function deleteProduct(id) { s.deleteProduct.run(id); }
@@ -186,6 +253,67 @@ function getOrdersByDate(date) { return s.getOrdersByDate.all(date); }
 function getDailyTotals(date) { return s.getDailyTotals.get(date); }
 
 // ============================================================
+// Option Groups (Uitbreidingskeuzesets)
+// ============================================================
+
+function getAllOptionGroups() { return s.getAllOptionGroups.all(); }
+function getOptionGroupById(id) { return s.getOptionGroupById.get(id); }
+
+function createOptionGroup({ name, type = 'note', max_choices = 1, sort_order = 0 }) {
+  const info = s.createOptionGroup.run(name, type, max_choices, sort_order);
+  return { id: info.lastInsertRowid, name, type, max_choices, sort_order };
+}
+
+function updateOptionGroup(id, { name, type, max_choices, sort_order }) {
+  s.updateOptionGroup.run(name, type, max_choices, sort_order, id);
+}
+
+function deleteOptionGroup(id) {
+  s.clearOptionGroupItems.run(id);
+  db.prepare('DELETE FROM product_option_groups WHERE option_group_id = ?').run(id);
+  s.deleteOptionGroup.run(id);
+}
+
+function getOptionGroupItems(groupId) { return s.getOptionGroupItems.all(groupId); }
+
+function addOptionGroupItem({ option_group_id, product_id, price_override = null, sort_order = 0 }) {
+  const info = s.addOptionGroupItem.run(option_group_id, product_id, price_override, sort_order);
+  return { id: info.lastInsertRowid, option_group_id, product_id, price_override, sort_order };
+}
+
+function removeOptionGroupItem(id) { s.removeOptionGroupItem.run(id); }
+
+function getProductOptionGroups(productId) { return s.getProductOptionGroups.all(productId); }
+
+function addProductOptionGroup({ product_id, option_group_id, sort_order = 0 }) {
+  const existing = s.getProductOptionGroupLink.get(product_id, option_group_id);
+  if (existing) return existing;
+  const info = s.addProductOptionGroup.run(product_id, option_group_id, sort_order);
+  return { id: info.lastInsertRowid, product_id, option_group_id, sort_order };
+}
+
+function removeProductOptionGroup(id) { s.removeProductOptionGroup.run(id); }
+
+function getOptionGroupsForProduct(productId) {
+  const links = s.getProductOptionGroups.all(productId);
+  return links.map(link => {
+    const items = s.getOptionGroupItems.all(link.option_group_id);
+    return {
+      id: link.option_group_id,
+      name: link.group_name,
+      type: link.type,
+      max_choices: link.max_choices,
+      items: items.map(i => ({
+        id: i.id,
+        product_id: i.product_id,
+        name: i.product_name,
+        price: i.price_override !== null ? i.price_override : i.product_price,
+      })),
+    };
+  });
+}
+
+// ============================================================
 // Settings
 // ============================================================
 
@@ -214,5 +342,9 @@ module.exports = {
   getAllProducts, getAllProductsAdmin, getProductById, createProduct, updateProduct, deleteProduct,
   getNextOrderNumber, createOrder, getOrderById, updateOrderStatus, updateOrderPayment,
   getActiveOrders, getOrdersByDate, getDailyTotals,
+  getAllOptionGroups, getOptionGroupById, createOptionGroup, updateOptionGroup, deleteOptionGroup,
+  getOptionGroupItems, addOptionGroupItem, removeOptionGroupItem,
+  getProductOptionGroups, addProductOptionGroup, removeProductOptionGroup,
+  getOptionGroupsForProduct,
   getSetting, setSetting, getAllSettings,
 };

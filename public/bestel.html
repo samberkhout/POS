@@ -49,7 +49,8 @@
     }
     .product-card:active { transform: scale(0.97); }
     .product-name { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
-    .product-price { font-size: 14px; color: #7f8c8d; margin-bottom: 10px; }
+    .product-price { font-size: 14px; color: #7f8c8d; margin-bottom: 4px; }
+    .product-price-qty2 { font-size: 12px; color: #27ae60; margin-bottom: 6px; }
     .add-btn {
       background: #3498db; color: white; border: none;
       padding: 10px 20px; border-radius: 8px; font-size: 14px;
@@ -103,12 +104,17 @@
       flex: 1; overflow-y: auto; padding: 10px 20px;
     }
     .drawer-item {
-      display: flex; align-items: center; padding: 12px 0;
-      border-bottom: 1px solid #f0f0f0; gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .drawer-item-row {
+      display: flex; align-items: center; gap: 12px;
     }
     .drawer-item-info { flex: 1; }
     .drawer-item-name { font-weight: 600; font-size: 15px; }
     .drawer-item-price { font-size: 14px; color: #7f8c8d; }
+    .drawer-item-ext { font-size: 12px; color: #7f8c8d; padding-left: 8px; }
+    .drawer-item-note { font-size: 12px; color: #7f8c8d; font-style: italic; padding-left: 8px; }
     .drawer-qty {
       display: flex; align-items: center; gap: 10px;
     }
@@ -141,10 +147,49 @@
     }
     .checkout-btn:active:not(:disabled) { background: #219a52; }
 
+    /* Extension modal */
+    .ext-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+      z-index: 400; display: none; align-items: center; justify-content: center;
+    }
+    .ext-overlay.active { display: flex; }
+    .ext-modal {
+      background: white; border-radius: 16px; padding: 24px;
+      width: 90%; max-width: 400px; max-height: 80vh; overflow-y: auto;
+    }
+    .ext-modal h3 { font-size: 18px; margin-bottom: 4px; }
+    .ext-modal .ext-subtitle { font-size: 13px; color: #7f8c8d; margin-bottom: 14px; }
+    .ext-group { margin-bottom: 14px; }
+    .ext-group-title {
+      font-size: 14px; font-weight: 700; margin-bottom: 6px;
+      padding-bottom: 3px; border-bottom: 2px solid #ecf0f1;
+    }
+    .ext-option {
+      display: flex; align-items: center; padding: 8px;
+      border-radius: 6px; margin-bottom: 3px; cursor: pointer;
+      border: 2px solid #ecf0f1; transition: all 0.15s;
+    }
+    .ext-option.selected { border-color: #3498db; background: #ebf5fb; }
+    .ext-option-name { flex: 1; font-size: 14px; }
+    .ext-option-price { font-size: 13px; color: #7f8c8d; }
+    .ext-note-input {
+      width: 100%; padding: 10px; border: 2px solid #ddd;
+      border-radius: 8px; font-size: 14px; margin-top: 10px;
+    }
+    .ext-actions {
+      display: flex; gap: 8px; margin-top: 14px;
+    }
+    .ext-actions button {
+      flex: 1; padding: 12px; border: none; border-radius: 8px;
+      font-size: 15px; font-weight: 700; cursor: pointer;
+    }
+    .ext-btn-cancel { background: #95a5a6; color: white; }
+    .ext-btn-add { background: #27ae60; color: white; }
+
     /* Payment modal */
     .payment-overlay {
       position: fixed; inset: 0; background: rgba(0,0,0,0.8);
-      z-index: 400; display: none; align-items: center;
+      z-index: 500; display: none; align-items: center;
       justify-content: center;
     }
     .payment-overlay.active { display: flex; }
@@ -177,6 +222,11 @@
   <button class="cart-float" id="cartFloat" onclick="openCart()">
     Bestelling bekijken <span class="badge" id="cartBadge">0</span>
   </button>
+
+  <!-- Extension modal -->
+  <div class="ext-overlay" id="extOverlay">
+    <div class="ext-modal" id="extModalContent"></div>
+  </div>
 
   <!-- Cart drawer -->
   <div class="cart-overlay" id="cartOverlay" onclick="closeCart()"></div>
@@ -211,6 +261,7 @@
 
   <script>
     let categories = [];
+    let allProducts = {};
     let cart = [];
 
     // Load menu
@@ -221,6 +272,14 @@
         categories = data.categories;
         document.getElementById('shopName').textContent = data.shopName;
         document.title = `Bestellen - ${data.shopName}`;
+
+        allProducts = {};
+        for (const cat of categories) {
+          for (const p of cat.products) {
+            allProducts[p.id] = p;
+          }
+        }
+
         renderMenu();
       } catch (err) {
         console.error('Fout bij laden menu:', err);
@@ -242,9 +301,10 @@
           <h2>${cat.name}</h2>
           <div class="product-list">
             ${cat.products.map(p => `
-              <div class="product-card" onclick="addToCart(${p.id}, '${p.name.replace(/'/g, "\\'")}', ${p.price})">
-                <div class="product-name">${p.name}</div>
+              <div class="product-card" onclick="handleProductClick(${p.id})">
+                <div class="product-name">${escapeHtml(p.name)}</div>
                 <div class="product-price">EUR ${formatPrice(p.price)}</div>
+                ${p.price_qty2 ? `<div class="product-price-qty2">2 stuks: EUR ${formatPrice(p.price_qty2)}</div>` : ''}
                 <button class="add-btn">Toevoegen</button>
               </div>
             `).join('')}
@@ -259,15 +319,116 @@
       document.getElementById('cat-' + catId).scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
-    // Cart
-    function addToCart(id, name, price) {
-      const existing = cart.find(item => item.id === id);
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text || '';
+      return div.innerHTML;
+    }
+
+    // Handle product click
+    function handleProductClick(productId) {
+      const product = allProducts[productId];
+      if (!product) return;
+
+      if (product.option_groups && product.option_groups.length > 0) {
+        showExtensionModal(product);
+      } else {
+        addToCartDirect(product);
+      }
+    }
+
+    function addToCartDirect(product) {
+      const existing = cart.find(item => item.id === product.id && !item.extensions?.length && !item.note);
       if (existing) {
         existing.quantity++;
       } else {
-        cart.push({ id, name, price, quantity: 1 });
+        cart.push({ id: product.id, name: product.name, price: product.price, price_qty2: product.price_qty2 || null, quantity: 1, extensions: [], note: '' });
       }
       updateCartUI();
+    }
+
+    // Extension modal for QR ordering
+    function showExtensionModal(product) {
+      const modal = document.getElementById('extModalContent');
+      let html = `<h3>${escapeHtml(product.name)}</h3>`;
+      html += `<div class="ext-subtitle">EUR ${formatPrice(product.price)}</div>`;
+
+      for (const group of product.option_groups) {
+        html += `<div class="ext-group">`;
+        html += `<div class="ext-group-title">${escapeHtml(group.name)}</div>`;
+        for (const item of group.items) {
+          html += `<div class="ext-option" data-group-id="${group.id}" data-product-id="${item.product_id}" data-name="${escapeHtml(item.name)}" data-price="${item.price}" data-type="${group.type}" data-max="${group.max_choices}" onclick="toggleQrExtOption(this)">
+            <span class="ext-option-name">${escapeHtml(item.name)}</span>
+            <span class="ext-option-price">${group.type === 'item' ? '+EUR ' + formatPrice(item.price) : ''}</span>
+          </div>`;
+        }
+        html += `</div>`;
+      }
+
+      html += `<input type="text" class="ext-note-input" id="qrExtNote" placeholder="Notitie (optioneel)">`;
+      html += `<div class="ext-actions">
+        <button class="ext-btn-cancel" onclick="closeExtOverlay()">Annuleren</button>
+        <button class="ext-btn-add" onclick="addWithQrExtensions(${product.id})">Toevoegen</button>
+      </div>`;
+
+      modal.innerHTML = html;
+      document.getElementById('extOverlay').classList.add('active');
+    }
+
+    function toggleQrExtOption(el) {
+      const groupId = el.dataset.groupId;
+      const maxChoices = parseInt(el.dataset.max) || 0;
+      if (el.classList.contains('selected')) {
+        el.classList.remove('selected');
+      } else {
+        if (maxChoices > 0) {
+          const selected = document.querySelectorAll(`.ext-option.selected[data-group-id="${groupId}"]`);
+          if (selected.length >= maxChoices) selected[0].classList.remove('selected');
+        }
+        el.classList.add('selected');
+      }
+    }
+
+    function closeExtOverlay() {
+      document.getElementById('extOverlay').classList.remove('active');
+    }
+
+    function addWithQrExtensions(productId) {
+      const product = allProducts[productId];
+      if (!product) return;
+
+      const extensions = [];
+      const selectedOptions = document.querySelectorAll('#extModalContent .ext-option.selected');
+      const groupMap = {};
+      for (const opt of selectedOptions) {
+        const gid = opt.dataset.groupId;
+        if (!groupMap[gid]) {
+          const group = product.option_groups.find(g => g.id == gid);
+          groupMap[gid] = { option_group_id: parseInt(gid), option_group_name: group ? group.name : '', type: opt.dataset.type, items: [] };
+        }
+        groupMap[gid].items.push({ product_id: parseInt(opt.dataset.productId), name: opt.dataset.name, price: parseInt(opt.dataset.price) });
+      }
+      for (const gid in groupMap) extensions.push(groupMap[gid]);
+
+      const note = document.getElementById('qrExtNote').value.trim();
+      cart.push({ id: product.id, name: product.name, price: product.price, price_qty2: product.price_qty2 || null, quantity: 1, extensions, note });
+
+      closeExtOverlay();
+      updateCartUI();
+    }
+
+    // Cart
+    function calcItemTotal(item) {
+      if (item.price_qty2 && item.quantity >= 2) {
+        const packs = Math.floor(item.quantity / 2);
+        const singles = item.quantity % 2;
+        let total = packs * item.price_qty2 + singles * item.price;
+        if (item.extensions) for (const ext of item.extensions) if (ext.type === 'item') for (const c of (ext.items || [])) total += (c.price || 0) * item.quantity;
+        return total;
+      }
+      let total = item.price * item.quantity;
+      if (item.extensions) for (const ext of item.extensions) if (ext.type === 'item') for (const c of (ext.items || [])) total += (c.price || 0) * item.quantity;
+      return total;
     }
 
     function changeQty(index, delta) {
@@ -279,7 +440,7 @@
 
     function updateCartUI() {
       const count = cart.reduce((sum, i) => sum + i.quantity, 0);
-      const total = cart.reduce((sum, i) => sum + i.price * i.quantity, 0);
+      const total = cart.reduce((sum, i) => sum + calcItemTotal(i), 0);
 
       const floatBtn = document.getElementById('cartFloat');
       floatBtn.style.display = count > 0 ? 'block' : 'none';
@@ -289,19 +450,35 @@
 
     function renderCartItems() {
       const container = document.getElementById('cartItems');
-      container.innerHTML = cart.map((item, i) => `
-        <div class="drawer-item">
-          <div class="drawer-item-info">
-            <div class="drawer-item-name">${item.name}</div>
-            <div class="drawer-item-price">EUR ${formatPrice(item.price * item.quantity)}</div>
+      container.innerHTML = cart.map((item, i) => {
+        let extHtml = '';
+        if (item.extensions && item.extensions.length > 0) {
+          for (const ext of item.extensions) {
+            for (const c of ext.items) {
+              extHtml += `<div class="drawer-item-ext">+ ${escapeHtml(c.name)}${ext.type === 'item' ? ' (+EUR ' + formatPrice(c.price) + ')' : ''}</div>`;
+            }
+          }
+        }
+        let noteHtml = item.note ? `<div class="drawer-item-note">"${escapeHtml(item.note)}"</div>` : '';
+
+        return `
+          <div class="drawer-item">
+            <div class="drawer-item-row">
+              <div class="drawer-item-info">
+                <div class="drawer-item-name">${escapeHtml(item.name)}</div>
+                <div class="drawer-item-price">EUR ${formatPrice(calcItemTotal(item))}</div>
+              </div>
+              <div class="drawer-qty">
+                <button onclick="changeQty(${i}, -1)">-</button>
+                <span>${item.quantity}</span>
+                <button onclick="changeQty(${i}, 1)">+</button>
+              </div>
+            </div>
+            ${extHtml}
+            ${noteHtml}
           </div>
-          <div class="drawer-qty">
-            <button onclick="changeQty(${i}, -1)">-</button>
-            <span>${item.quantity}</span>
-            <button onclick="changeQty(${i}, 1)">+</button>
-          </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
     }
 
     function openCart() {
@@ -332,11 +509,19 @@
       checkoutBtn.textContent = 'Laden...';
 
       try {
+        const orderItems = cart.map(item => {
+          const oi = { product_id: item.id, name: item.name, price: item.price, quantity: item.quantity };
+          if (item.price_qty2) oi.price_qty2 = item.price_qty2;
+          if (item.extensions && item.extensions.length > 0) oi.extensions = item.extensions;
+          if (item.note) oi.note = item.note;
+          return oi;
+        });
+
         const res = await fetch('/api/orders/create-qr', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            items: cart.map(i => ({ product_id: i.id, name: i.name, price: i.price, quantity: i.quantity })),
+            items: orderItems,
             customer_name: name,
           }),
         });
