@@ -586,8 +586,14 @@
           },
           locale: 'nl-NL',
           countryCode: 'NL',
-          onPaymentCompleted: (result) => {
+          onPaymentCompleted: async (result) => {
             if (result.resultCode === 'Authorised') {
+              // Bevestig de bestelling zodat deze op het keukenscherm verschijnt
+              try {
+                await fetch(`/api/orders/${data.orderId}/confirm-payment`, { method: 'POST' });
+              } catch (e) {
+                console.error('Kon betaling niet bevestigen:', e);
+              }
               window.location.href = `/bedankt.html?orderid=${data.orderId}`;
             } else {
               document.getElementById('adyen-dropin').innerHTML = `<p>Betaling niet gelukt: ${result.resultCode}</p>`;

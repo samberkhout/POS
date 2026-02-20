@@ -272,6 +272,42 @@ app.post('/adyen/webhook', (req, res) => {
   }
 });
 
+// Confirm QR order payment (called from client after successful iDEAL)
+app.post('/api/orders/:id/confirm-payment', (req, res) => {
+  try {
+    const orderId = parseInt(req.params.id);
+    const order = db.getOrderById(orderId);
+
+    if (!order) {
+      return res.status(404).json({ error: 'Bestelling niet gevonden' });
+    }
+
+    // Only confirm orders that are still waiting for payment
+    if (order.status !== 'wacht_op_betaling') {
+      return res.json({ ok: true, already_confirmed: true });
+    }
+
+    const updated = db.updateOrderPayment(orderId, {
+      payment_method: 'online',
+      payment_reference: order.payment_reference || '',
+      status: 'nieuw',
+    });
+
+    if (updated) {
+      const shopName = db.getSetting('shop_name') || 'POS';
+      io.to('kitchen').emit('new-order', updated);
+      io.to('cashier').emit('qr-order-received', updated);
+      printer.printReceipt(updated, shopName);
+      printer.printKitchenTicket(updated, shopName);
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Fout bij bevestigen QR betaling:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ============================================================
 // LOCAL-ONLY API Routes
 // ============================================================
