@@ -601,7 +601,7 @@
 
         const checkout = await AdyenCheckout(configuration);
         document.getElementById('adyen-dropin').innerHTML = '';
-        checkout.create('dropin').mount('#adyen-dropin');
+        checkout.create('ideal').mount('#adyen-dropin');
       } catch (err) {
         console.error('Dropin init fout:', err);
         document.getElementById('adyen-dropin').innerHTML = '<p>Kan betaalmethoden niet laden</p>';
