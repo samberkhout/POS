@@ -37,6 +37,7 @@ async function createCheckoutSession(amountCents, orderReference, orderId) {
     countryCode: 'NL',
     channel: 'Web',
     shopperLocale: 'nl-NL',
+    allowedPaymentMethods: ['ideal'],
   };
 
   const response = await fetch(`${endpoint}/sessions`, {
