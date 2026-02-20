@@ -190,10 +190,10 @@
 
         const data = await res.json();
 
-        // If still waiting for payment and we have a redirectResult, confirm it
-        if (data.status === 'wacht_op_betaling' && redirectResult) {
+        // If still waiting for payment and we came back from iDEAL, confirm it once
+        if (data.status === 'wacht_op_betaling' && redirectResult && !paymentConfirmed) {
           await confirmPaymentAfterRedirect();
-          // Re-check status after confirming
+          // Quick re-check after confirming
           setTimeout(checkStatus, 1000);
           return;
         }
