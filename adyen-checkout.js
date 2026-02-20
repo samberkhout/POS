@@ -124,9 +124,36 @@ function getEnvironment() {
   return process.env.ADYEN_ENVIRONMENT || 'test';
 }
 
+/**
+ * Check the result of a payment session with Adyen
+ * @param {string} sessionId - The session ID
+ * @returns {Promise<{status: string, resultCode: string}>}
+ */
+async function getSessionResult(sessionId) {
+  const apiKey = process.env.ADYEN_CHECKOUT_API_KEY || process.env.ADYEN_API_KEY;
+  const environment = process.env.ADYEN_ENVIRONMENT || 'test';
+  const endpoint = ENDPOINTS[environment] || ENDPOINTS.test;
+
+  const response = await fetch(`${endpoint}/sessions/${sessionId}`, {
+    method: 'GET',
+    headers: {
+      'X-API-Key': apiKey,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Adyen session check fout: ${response.status} - ${text}`);
+  }
+
+  return response.json();
+}
+
 module.exports = {
   createCheckoutSession,
   verifyWebhookHmac,
   getClientKey,
   getEnvironment,
+  getSessionResult,
 };

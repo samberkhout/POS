@@ -156,6 +156,25 @@
       }).join('');
     }
 
+    const redirectResult = params.get('redirectResult');
+    const sessionId = params.get('sessionId');
+    let paymentConfirmed = false;
+
+    // After iDEAL redirect, confirm the payment with the server
+    async function confirmPaymentAfterRedirect() {
+      if (paymentConfirmed || !orderId || !redirectResult) return;
+      paymentConfirmed = true;
+      try {
+        await fetch(`/api/orders/${orderId}/confirm-payment`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: sessionId || '' }),
+        });
+      } catch (e) {
+        console.error('Kon betaling niet bevestigen:', e);
+      }
+    }
+
     async function checkStatus() {
       if (!orderId) {
         document.getElementById('loading').textContent = 'Geen bestelnummer gevonden';
@@ -170,6 +189,14 @@
         }
 
         const data = await res.json();
+
+        // If still waiting for payment and we have a redirectResult, confirm it
+        if (data.status === 'wacht_op_betaling' && redirectResult) {
+          await confirmPaymentAfterRedirect();
+          // Re-check status after confirming
+          setTimeout(checkStatus, 1000);
+          return;
+        }
 
         document.getElementById('loading').style.display = 'none';
         document.getElementById('content').style.display = 'block';

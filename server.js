@@ -272,19 +272,28 @@ app.post('/adyen/webhook', (req, res) => {
   }
 });
 
-// Confirm QR order payment (called from client after successful iDEAL)
-app.post('/api/orders/:id/confirm-payment', (req, res) => {
+// Confirm QR order payment (called from bedankt.html after iDEAL redirect)
+app.post('/api/orders/:id/confirm-payment', async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);
+    const { sessionId } = req.body;
     const order = db.getOrderById(orderId);
 
     if (!order) {
       return res.status(404).json({ error: 'Bestelling niet gevonden' });
     }
 
-    // Only confirm orders that are still waiting for payment
+    // Already confirmed (e.g. by webhook) — nothing to do
     if (order.status !== 'wacht_op_betaling') {
       return res.json({ ok: true, already_confirmed: true });
+    }
+
+    // Verify payment with Adyen before confirming
+    if (sessionId) {
+      const session = await adyenCheckout.getSessionResult(sessionId);
+      if (session.status !== 'completed') {
+        return res.status(402).json({ error: 'Betaling nog niet voltooid', adyenStatus: session.status });
+      }
     }
 
     const updated = db.updateOrderPayment(orderId, {
